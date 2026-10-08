@@ -1,0 +1,19 @@
+Patch 0004-vllm58681-restore-sm12x-alignment-behavior-for.patch for vLLM, base commit 81198e97ba7eee2a22540caaa756b7fdddcb4d93 (vllm/vllm-openai:nightly-81198e97ba7eee2a22540caaa756b7fdddcb4d93).
+What: Restore SM12x alignment behavior for grouped GEMMs
+Upstream: https://github.com/vllm-project/vllm/pull/58681 by @dajiaohuang (open), ported at head 6da79884 (PR now at 828e936c); cherry-picked unchanged.
+This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
+
+diff --git a/vllm/utils/deep_gemm.py b/vllm/utils/deep_gemm.py
+index 0eb979c..ed00293 100644
+--- a/vllm/utils/deep_gemm.py
++++ b/vllm/utils/deep_gemm.py
+@@ -386,6 +386,9 @@ def get_theoretical_mk_alignment_for_contiguous_layout(
+         return _get_theoretical_mk_alignment_for_contiguous_layout_impl(expected_m)
+     if num_groups <= 0:
+         raise ValueError(f"num_groups must be positive, got {num_groups}")
++    if current_platform.is_device_capability_family(120):
++        per_group_m = None if expected_m is None else cdiv(expected_m, num_groups)
++        return 64 if per_group_m is not None and per_group_m <= 64 else 128
+     try:
+         return _get_theoretical_mk_alignment_for_contiguous_layout_impl(
+             expected_m, num_groups

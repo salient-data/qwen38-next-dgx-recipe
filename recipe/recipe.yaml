@@ -1,0 +1,34 @@
+# qwen38-next-dgx-recipe, build 2026-10-08-81198e97. Field names follow vllm-project/recipes where they fit.
+recipe_version: "2026-10-08-81198e97"
+model_id: nvidia/Qwen3.8-Flash-Next-NVFP4
+model_revision: fc694b54fb0174e0913e6adf86691ef85a4ead47
+meta:
+  hardware:
+    dgx_spark_gb10: verified   # one DGX Spark; GB10 is NOT in the model card's supported hardware
+  last_verified: "2026-10-08"
+container:
+  base: vllm/vllm-openai@sha256:a83c7f976879e0c6101f734fd5b84a098d12d6d8d12baa41e31eb323b84b0802
+  vllm_commit: 81198e97ba7eee2a22540caaa756b7fdddcb4d93
+  vllm_version: "0.31.1rc1.dev88+g81198e97b"
+  torch: "2.13.0+cu130"
+  flashinfer: "0.7.0.post1"
+  patches: 6   # recipe/patches/series
+nightly_required: true
+features:
+  spec_decoding:
+    method: mtp
+    num_speculative_tokens: 4
+    num_speculative_tokens_per_batch_size: [[1, 1, 4], [2, 6, 3]]
+    draft_lm_head_quantization: nvfp4
+    draft_vocab: 65536
+  fp8_dense_groups: "gdn,attn,shared,mtp,lm_head"
+serve:
+  served_model_name: qwen3.8-flash-next
+  args: recipe/serve.args
+  env: recipe/serve.env
+  docker: "--gpus all --network host --ipc host --shm-size 32g --ulimit memlock=-1:-1 --memory 112g"
+tested_host:
+  kernel: "7.0.0-1019-nvidia"
+  driver: "580.178.04 (open kernel module)"
+  docker: "29.6.2"
+  memory_total_gib: 121.69

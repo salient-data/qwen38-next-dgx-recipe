@@ -1,0 +1,6 @@
+89abc8aa5403dd4982c753af858ee8ce2c3328071536224bdc21ee6cbe37486b  0001-vllm58815-ple-host-file-gather.patch
+11a1becd49cf5f8c4ac11160237c52fe094c2ce6cbb65cb63d5244453e90e5ea  0002-fp8-dense-and-draft-vocab.patch
+5395e3dc37778238fabd3cbb464fbac32b3b6c683c4901c3d6b8465808ce4ecf  0003-vllm59973-nvfp4-draft-lm-head.patch
+e5ecca54ddb77c74ee53a737c91dffd2baedc27590a94e0b6c7a9eaaa48a4bed  0004-vllm58681-restore-sm12x-alignment-behavior-for.patch
+5b2cd88645bca737567a3dbe2a3275acbf16079d308db33bc6970b8c88948221  0005-vllm58737-fuse-the-mamba-align-block-table.patch
+b73d73972aa0a2edd41e17fd0fdefaaba0a0ea18075649bb46b97b471e34bfc8  0006-vllm59528-keep-the-glm-5-3-kpool-tail.patch

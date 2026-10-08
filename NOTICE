@@ -1,0 +1,37 @@
+qwen38-next-dgx-recipe
+Copyright 2026 Salient Data
+
+This repository is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+recipe/patches/ contains modifications of vLLM (https://github.com/vllm-project/vllm, Apache-2.0,
+Copyright the vLLM project contributors). Each patch states the vLLM base commit it applies to and the
+upstream pull request it ports, with its author; recipe/patches/PROVENANCE.md lists them. The vLLM
+copyright and SPDX lines in the modified files are unchanged.
+
+recipe/patches/0002-fp8-dense-and-draft-vocab.patch ports reduced-vocabulary MTP drafting from
+single-spark-vllm-tp1/patch/mtp_draft_vocab.py in https://github.com/tonyd2wild/Qwen3.8-Flash-Next-NVFP4-DGX-Spark
+at commit 6ad1c8f: Copyright 2026 Tony DeAngelo (Tech2Wild / 2Wild), Apache-2.0 (credited in the code as "Kai / 2Wild").
+
+bench/quality/gsm8k-subset.jsonl contains 100 problems and solutions from OpenAI's grade-school-math dataset
+(https://github.com/openai/grade-school-math):
+
+  MIT License
+  Copyright (c) 2021 OpenAI
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+  documentation files (the "Software"), to deal in the Software without restriction, including without limitation
+  the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and
+  to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+  The above copyright notice and this permission notice shall be included in all copies or substantial portions
+  of the Software.
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+  THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+  CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+  IN THE SOFTWARE.
+
+bench/run-third-party.sh downloads, at a pinned commit, a benchmark script from
+https://github.com/tonyd2wild/Qwen3.8-Flash-Next-NVFP4-DGX-Spark (Apache-2.0); it is not redistributed here.
+results/ contains that harness's output files (its prompts and our model's answers) under its Apache-2.0 licence.
+
+No model weights are distributed. nvidia/Qwen3.8-Flash-Next-NVFP4 is under its own licence (NVIDIA Open
+Model License and the Qwen Community License); download it from Hugging Face.

@@ -1,0 +1,10 @@
+{
+ "source_url": "https://raw.githubusercontent.com/openai/grade-school-math/master/grade_school_math/data/test.jsonl",
+ "source_sha256": "3730d312f6e3440559ace48831e51066acaca737f6eabec99bccb9e4b3c39d14",
+ "source_rows": 1319,
+ "selection": "sorted(random.Random(20260903).sample(range(1319), 100))",
+ "seed": 20260903,
+ "n": 100,
+ "subset_sha256": "82741d86a3c6a087bf843e81e21301afbb5165df9d7cb100f857365b0c03aee6",
+ "what": "The fixed GSM8K subset bench/quality/gsm8k.py scores: 100 problems drawn with the seeded selection below from OpenAI's grade-school-math test split (MIT licence)."
+}

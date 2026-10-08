@@ -1,0 +1,596 @@
+{
+  "probe": "needle-in-haystack, four-field record",
+  "label": "vllm-nightly-main-20261008-0800-81198e97 via qfn",
+  "endpoint": "http://localhost:8000",
+  "model": "qwen3.8-flash-next",
+  "target_prompt_tokens": 130824,
+  "filler_sentences": 5524,
+  "seed": 20260827,
+  "temperature": 0.0,
+  "depths": [
+    0.05,
+    0.0974,
+    0.1447,
+    0.1921,
+    0.2395,
+    0.2868,
+    0.3342,
+    0.3816,
+    0.4289,
+    0.4763,
+    0.5237,
+    0.5711,
+    0.6184,
+    0.6658,
+    0.7132,
+    0.7605,
+    0.8079,
+    0.8553,
+    0.9026,
+    0.95
+  ],
+  "passed": 20,
+  "total": 20,
+  "trials": [
+    {
+      "depth": 0.05,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 50.28,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.0974,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 46.66,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.1447,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 46.72,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.1921,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 44.51,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.2395,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 42.52,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.2868,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 40.06,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.3342,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 37.57,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.3816,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 35.08,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.4289,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 33.03,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.4763,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 30.54,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.5237,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 28.01,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.5711,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 28.3,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.6184,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 26.23,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.6658,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 23.71,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.7132,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 21.14,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.7605,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 19.08,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.8079,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 16.55,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.8553,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 14.2,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.9026,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 12.1,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    },
+    {
+      "depth": 0.95,
+      "prompt_tokens": 130774,
+      "completion_tokens": 47,
+      "elapsed_s": 9.51,
+      "fields_recovered": 4,
+      "pass": true,
+      "finish_reason": "stop",
+      "detail": {
+        "station": {
+          "expected": "Verrastro Point",
+          "found": true
+        },
+        "keeper": {
+          "expected": "Ondine Halvorsen",
+          "found": true
+        },
+        "code": {
+          "expected": "7-QUAIL-4193-MARROW",
+          "found": true
+        },
+        "depth": {
+          "expected": "218 fathoms",
+          "found": true
+        }
+      },
+      "answer": "relief station: Verrastro Point\nkeeper of record: Ondine Halvorsen\nmaintenance code: 7-QUAIL-4193-MARROW\nsounding: 218 fathoms"
+    }
+  ]
+}

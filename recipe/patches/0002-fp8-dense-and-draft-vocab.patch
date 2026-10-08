@@ -1,0 +1,314 @@
+Patch 0002-fp8-dense-and-draft-vocab.patch for vLLM, base commit 81198e97ba7eee2a22540caaa756b7fdddcb4d93 (vllm/vllm-openai:nightly-81198e97ba7eee2a22540caaa756b7fdddcb4d93).
+What: QWEN38_FP8_DENSE casts the checkpoint's BF16 dense linears (GDN, QSA, shared experts, MTP dense, lm_head) to 128x128 block FP8 at load (197 linears); QWEN4EXP_DRAFT_VOCAB limits MTP drafting to token ids below 65,536; keeps the QSA indexer projection unfused so its rows stay BF16.
+Upstream: no vLLM PR. FP8-dense cast and indexer handling written for this recipe; the reduced-vocabulary drafting ports tonyd2wild's mtp_draft_vocab.py (Tony DeAngelo, Tech2Wild / 2Wild, Apache-2.0; https://github.com/tonyd2wild/Qwen3.8-Flash-Next-NVFP4-DGX-Spark @ 6ad1c8f), credited in the code as 'Kai / 2Wild'.
+This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
+
+diff --git a/vllm/model_executor/layers/quantization/modelopt.py b/vllm/model_executor/layers/quantization/modelopt.py
+index 98af93c..2f352ea 100644
+--- a/vllm/model_executor/layers/quantization/modelopt.py
++++ b/vllm/model_executor/layers/quantization/modelopt.py
+@@ -1,6 +1,8 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ 
++import os
++import re
+ from collections.abc import Callable
+ from dataclasses import dataclass
+ from enum import Enum
+@@ -1536,6 +1538,61 @@ ModelOptMxFp8Config.FusedMoEMethodCls = ModelOptMxFp8FusedMoE
+ ModelOptMxFp8Config.KVCacheMethodCls = ModelOptKVCacheMethod
+ 
+ 
++# QWEN38_FP8_DENSE: cast chosen BF16 linears that this
++# MIXED_PRECISION checkpoint leaves unquantized to 128x128 block FP8 at load,
++# through vLLM's own Fp8PerBlockOnlineLinearMethod -- the scheme FP8_PB_WO
++# checkpoints store. A comma list of groups; unset or empty changes nothing.
++#   gdn      linear_attn.in_proj_qkvz, linear_attn.out_proj
++#   attn     self_attn.qkv_proj, self_attn.o_proj (QSA; not the indexer)
++#   shared   mlp.shared_expert.gate_up_proj, mlp.shared_expert.down_proj
++#   lm_head  the output head (and the MTP head that shares it)
++#   mtp      allow the groups above inside the MTP drafter too
++# Routers, gates, hyper-connection mixes, in_proj_ba, the PLE layer, the
++# indexer and the embeddings stay BF16 whatever is set.
++_QWEN38_FP8_DENSE_PATTERNS = {
++    "gdn": re.compile(r"\.linear_attn\.(in_proj_qkvz|out_proj)$"),
++    "attn": re.compile(r"\.self_attn\.(qkv_proj|o_proj)$"),
++    "shared": re.compile(r"\.mlp\.shared_expert\.(gate_up_proj|down_proj)$"),
++}
++
++
++def _qwen38_fp8_dense_method(
++    layer: torch.nn.Module, prefix: str
++) -> "QuantizeMethodBase | None":
++    groups = {
++        g.strip()
++        for g in os.environ.get("QWEN38_FP8_DENSE", "").split(",")
++        if g.strip()
++    }
++    if not groups:
++        return None
++    unknown = groups - {*_QWEN38_FP8_DENSE_PATTERNS, "lm_head", "mtp"}
++    if unknown:
++        raise ValueError(f"QWEN38_FP8_DENSE: unknown group(s) {sorted(unknown)}")
++    if "mtp" in prefix.split(".") and "mtp" not in groups:
++        return None
++    if isinstance(layer, ParallelLMHead):
++        if "lm_head" not in groups:
++            return None
++    elif not isinstance(layer, LinearBase) or not any(
++        _QWEN38_FP8_DENSE_PATTERNS[g].search(prefix)
++        for g in groups
++        if g in _QWEN38_FP8_DENSE_PATTERNS
++    ):
++        return None
++    if type(layer).__name__ == "Qwen4ExpQSAQKVIndexerLinear":
++        raise ValueError(
++            f"QWEN38_FP8_DENSE: {prefix} carries the indexer Q/K rows, which "
++            "stay BF16; the attn group needs the unfused projections"
++        )
++    from vllm.model_executor.layers.quantization.online.fp8 import (
++        Fp8PerBlockOnlineLinearMethod,
++    )
++
++    logger.info("QWEN38_FP8_DENSE: %s -> block FP8 (online)", prefix)
++    return Fp8PerBlockOnlineLinearMethod()
++
++
+ class ModelOptMixedPrecisionConfig(ModelOptQuantConfigBase):
+     """Config class for ModelOpt MIXED_PRECISION.
+ 
+@@ -1806,7 +1863,7 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfigBase):
+         # Excluded layers
+         if self.is_layer_excluded(prefix):
+             if isinstance(layer, (LinearBase, ParallelLMHead)):
+-                return UnquantizedLinearMethod()
++                return _qwen38_fp8_dense_method(layer, prefix) or UnquantizedLinearMethod()
+             return None
+ 
+         quant_algo = self._resolve_quant_algo(prefix)
+@@ -1818,7 +1875,7 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfigBase):
+             # the MoE method that shares the sub-config.
+             if quant_algo is None or quant_algo not in LINEAR_ALGOS:
+                 # Layer not in quantized_layers — leave unquantized
+-                return UnquantizedLinearMethod()
++                return _qwen38_fp8_dense_method(layer, prefix) or UnquantizedLinearMethod()
+             _, subcfg_attr = LINEAR_ALGOS[quant_algo]
+             return build_linear_method(getattr(self, subcfg_attr), quant_algo, prefix)
+ 
+diff --git a/vllm/models/qwen4_exp/nvidia/model.py b/vllm/models/qwen4_exp/nvidia/model.py
+index 2de883c..a3b9ccb 100644
+--- a/vllm/models/qwen4_exp/nvidia/model.py
++++ b/vllm/models/qwen4_exp/nvidia/model.py
+@@ -655,9 +655,20 @@ class Qwen4ExpForCausalLM(
+         self.model = Qwen4ExpModel(
+             vllm_config=vllm_config, prefix=maybe_prefix(prefix, "model")
+         )
++        # QWEN38_FP8_DENSE=...,lm_head: hand the head the
++        # quant config so ModelOpt's get_quant_method can cast it to block FP8.
++        # Upstream builds it with none. The V2 speculator shares this head with
++        # the MTP drafter, whose reduced-vocabulary path (mtp.py) rebuilds its
++        # draft rows as BF16 when the head is FP8.
++        import os as _os
++
++        _fp8_head = "lm_head" in {
++            g.strip() for g in _os.environ.get("QWEN38_FP8_DENSE", "").split(",")
++        }
+         self.lm_head = ParallelLMHead(
+             config.vocab_size,
+             config.hidden_size,
++            quant_config=self.quant_config if _fp8_head else None,
+             prefix=maybe_prefix(prefix, "lm_head"),
+         )
+         self.logits_processor = LogitsProcessor(config.vocab_size)
+diff --git a/vllm/models/qwen4_exp/nvidia/mtp.py b/vllm/models/qwen4_exp/nvidia/mtp.py
+index 6129061..5e7e694 100644
+--- a/vllm/models/qwen4_exp/nvidia/mtp.py
++++ b/vllm/models/qwen4_exp/nvidia/mtp.py
+@@ -1,4 +1,13 @@
+ # SPDX-License-Identifier: Apache-2.0
++# Base file: vLLM v0.30.0 vllm/models/qwen4_exp/nvidia/mtp.py (originally overlaid on nightly 8a728663), Apache-2.0, Copyright contributors to the vLLM project.
++# Addition (Kai / 2Wild, 2026-09-05): reduced-vocabulary drafting for the MTP head. The draft's lm_head matmul is
++# memory-bound (vocab x hidden x 2 bytes per draft step); computing it only for the QWEN4EXP_DRAFT_VOCAB most
++# frequent token ids and masking the rest to -inf cuts that read by (1 - K/V). Token ids are used as the frequency
++# proxy (BPE merge order) so no corpus is needed; the target model still verifies every draft over the full vocab,
++# so outputs stay exact, only the draft acceptance can change. Idea: FR-Spec (frequency-ranked speculative sampling,
++# Zhao et al. 2025); MiaAI-Lab demonstrated a corpus-built 65,536-token draft vocabulary on this model (AGPL code,
++# not used here). This is an independent implementation.
++# SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ """Inference-only Qwen4Exp MTP (Multi-Token Predictor) model.
+ 
+@@ -357,6 +366,14 @@ class Qwen4ExpMultiTokenPredictor(nn.Module):
+         return loader.load_weights(weights, mapper=mapper)
+ 
+ 
++def _draft_vocab_size() -> int:
++    import os as _os
++    try:
++        return int(_os.environ.get("QWEN4EXP_DRAFT_VOCAB", "0"))
++    except ValueError:
++        return 0
++
++
+ class Qwen4ExpMTP(nn.Module, SupportsPP, Qwen4ExpMixtureOfExperts):
+     packed_modules_mapping = {
+         "qkv_proj": ["q_proj", "k_proj", "v_proj"],
+@@ -425,7 +442,123 @@ class Qwen4ExpMTP(nn.Module, SupportsPP, Qwen4ExpMixtureOfExperts):
+     def compute_logits(
+         self, hidden_states: torch.Tensor, spec_step_idx: int = 0
+     ) -> torch.Tensor | None:
+-        return self.logits_processor(self.lm_head, hidden_states)
++        # A full-vocabulary draft head this drafter quantized itself
++        # runs through the reduced-vocabulary path with k = the whole vocabulary.
++        k = getattr(self, "_draft_rows_k", None) or _draft_vocab_size()
++        if k <= 0 or not hasattr(self.lm_head, "weight"):
++            return self.logits_processor(self.lm_head, hidden_states)
++        return self._reduced_vocab_logits(hidden_states, k)
++
++    # --- Kai/2Wild: reduced-vocabulary drafting ---------------------------
++    def _draft_rows(self, k: int):
++        """(k, start, lo, hi, w): this rank's draft rows [lo, hi) as BF16."""
++        head = self.lm_head
++        cache = getattr(self, "_draft_vocab_cache", None)
++        if cache is None or cache[0] != k:
++            start = int(head.shard_indices.org_vocab_start_index)
++            end = int(head.shard_indices.org_vocab_end_index)
++            lo, hi = max(start, 0), min(end, k)
++            w = head.weight[lo - start : hi - start].contiguous() if hi > lo else None
++            # QWEN38_FP8_DENSE=...,lm_head: the speculator
++            # shares the target's head, which is then block FP8 and cannot be
++            # sliced into F.linear. Rebuild the draft rows as BF16 once, through
++            # the head's own FP8 apply on one-hot inputs, so the rows equal the
++            # dequantized FP8 weight to BF16 rounding whatever layout the kernel
++            # keeps its scales in. Draft-only: the target verifies every token.
++            if w is not None and w.dtype == torch.float8_e4m3fn:
++                cols = int(self.config.hidden_size)  # weight may be stored transposed
++                eye = torch.eye(cols, dtype=torch.bfloat16, device=w.device)
++                wt = torch.empty((cols, hi - lo), dtype=torch.bfloat16, device=w.device)
++                for c in range(0, cols, 256):
++                    out = head.quant_method.apply(head, eye[c : c + 256])
++                    wt[c : c + 256] = out[:, lo - start : hi - start]
++                w = wt.t().contiguous()
++                del eye, wt
++            cache = (k, start, lo, hi, w)
++            self._draft_vocab_cache = cache
++        return cache
++
++    # --- draft_lm_head_quantization with a reduced vocabulary
++    def wants_own_draft_rows(self, target_lm_head=None) -> bool:
++        """vllm#59973 quantizes a copy of the whole shared head; with a reduced
++        draft vocabulary only the draft rows are ever read, so quantize those.
++        With the full vocabulary, do the same when the shared head is not plain
++        BF16 (QWEN38_FP8_DENSE=...,lm_head), which the PR's copy refuses."""
++        if _draft_vocab_size() > 0:
++            return True
++        from vllm.model_executor.layers.vocab_parallel_embedding import (
++            UnquantizedEmbeddingMethod,
++        )
++
++        return target_lm_head is not None and not isinstance(
++            target_lm_head.quant_method, UnquantizedEmbeddingMethod
++        )
++
++    def quantize_draft_rows(self, quantization: str) -> None:
++        from vllm.logger import init_logger
++        from vllm.model_executor.layers.quantization.online.lm_head import (
++            quantized_lm_head_copy,
++        )
++        from vllm.model_executor.utils import replace_parameter
++
++        k = _draft_vocab_size()
++        if k <= 0:
++            k = int(self.config.vocab_size)
++            self._draft_rows_k = k
++        _, start, lo, hi, w = self._draft_rows(k)
++        if w is None:
++            return
++        rows = ParallelLMHead(
++            hi - lo,
++            int(self.config.hidden_size),
++            params_dtype=w.dtype,
++            prefix="mtp.draft_rows",
++            disable_tp=True,
++        )
++        replace_parameter(rows, "weight", w)
++        self._draft_rows_q = quantized_lm_head_copy(rows, quantization)
++        # The BF16 rows are no longer read; keep only their coordinates.
++        self._draft_vocab_cache = (k, start, lo, hi, None)
++        del rows, w
++        init_logger(__name__).info(
++            "QWEN38 draft head: %d reduced-vocabulary rows quantized to %s",
++            hi - lo,
++            quantization,
++        )
++
++    def _reduced_vocab_logits(self, hidden_states: torch.Tensor, k: int) -> torch.Tensor:
++        """Logits for token ids [0, k) only; every other id is -inf.
++
++        Each TP rank holds a vocab slice of lm_head; it multiplies the rows of
++        its slice that fall inside [0, k), writes them into a [n, k] buffer,
++        and the ranks sum (each column is owned by exactly one rank). The
++        result is scattered into a full-width [n, vocab] tensor so the
++        speculator's argmax yields global ids unchanged.
++        """
++        import torch.nn.functional as F
++        from vllm.distributed import (
++            get_tensor_model_parallel_world_size,
++            tensor_model_parallel_all_reduce,
++        )
++
++        _, start, lo, hi, w = self._draft_rows(k)
++        n = hidden_states.shape[0]
++        small = torch.zeros((n, k), dtype=hidden_states.dtype, device=hidden_states.device)
++        q = getattr(self, "_draft_rows_q", None)
++        if q is not None:
++            out = q.quant_method.apply(q, hidden_states.to(q.orig_dtype))
++            small[:, lo:hi] = out[:, : hi - lo].to(small.dtype)
++        elif w is not None:
++            small[:, lo:hi] = F.linear(hidden_states.to(w.dtype), w).to(small.dtype)
++        if get_tensor_model_parallel_world_size() > 1:
++            small = tensor_model_parallel_all_reduce(small)
++        vocab = int(self.config.vocab_size)
++        full = torch.full((n, vocab), float("-inf"), dtype=small.dtype, device=small.device)
++        full[:, :k] = small
++        scale = getattr(self.logits_processor, "scale", 1.0)
++        if scale != 1.0:
++            full.mul_(scale)
++        return full
+ 
+     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
+         def remap_weight_names():
+diff --git a/vllm/models/qwen4_exp/nvidia/qsa.py b/vllm/models/qwen4_exp/nvidia/qsa.py
+index 0246db8..8627672 100644
+--- a/vllm/models/qwen4_exp/nvidia/qsa.py
++++ b/vllm/models/qwen4_exp/nvidia/qsa.py
+@@ -129,6 +129,13 @@ class Qwen4ExpQSAQKVIndexerLinear(MergedColumnParallelLinear):
+         return super().load_weights(remap_shards())
+ 
+ 
++def _qwen38_fp8_dense_attn() -> bool:
++    import os
++
++    groups = {g.strip() for g in os.environ.get("QWEN38_FP8_DENSE", "").split(",")}
++    return "attn" in groups
++
++
+ def qsa_kv_cache_dtype(cache_config: CacheConfig, prefix: str) -> CacheDType:
+     """The layer's KV cache dtype, honoring ``--kv-cache-dtype-skip-layers``."""
+     if str(extract_layer_index(prefix)) in cache_config.kv_cache_dtype_skip_layers:
+@@ -494,7 +501,13 @@ class Qwen4ExpQSAAttention(Qwen3NextAttention, AttentionLayerBase):
+         self.use_fused_qsa_prepare = (
+             self.use_fused_qk_norm_rope_gate and self.indexer.use_fused_pre_indexer
+         )
+-        self.fuse_indexer_projection = vllm_config.lora_config is None
++        # QWEN38_FP8_DENSE: the "attn" group casts
++        # self_attn.qkv_proj to block FP8 by prefix. The fused linear keeps
++        # that prefix and also carries the indexer Q/K rows, which must stay
++        # BF16, so the cast keeps the two projections separate.
++        self.fuse_indexer_projection = (
++            vllm_config.lora_config is None and not _qwen38_fp8_dense_attn()
++        )
+         if self.fuse_indexer_projection:
+             self.index_qk_size = self.indexer.index_qk_proj.output_size
+             self.qkv_proj = Qwen4ExpQSAQKVIndexerLinear(

@@ -1,0 +1,6 @@
+0001-vllm58815-ple-host-file-gather
+0002-fp8-dense-and-draft-vocab
+0003-vllm59973-nvfp4-draft-lm-head
+0004-vllm58681-restore-sm12x-alignment-behavior-for
+0005-vllm58737-fuse-the-mamba-align-block-table
+0006-vllm59528-keep-the-glm-5-3-kpool-tail
