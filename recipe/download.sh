@@ -6,5 +6,5 @@ set -euo pipefail
 cd "$(dirname "$0")"; source ./pins.env
 command -v hf > /dev/null || { echo "install the Hugging Face CLI: pip install -U huggingface_hub" >&2; exit 1; }
 hf download "$MODEL_ID" --revision "$MODEL_REVISION"
-snap="${HF_HOME:-$HOME/.cache/huggingface}/hub/models--${MODEL_ID//\//--}/snapshots/$MODEL_REVISION"
+snap="${HF_HUB_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}/hub}/models--${MODEL_ID//\//--}/snapshots/$MODEL_REVISION"
 (cd "$snap" && sha256sum -c "$OLDPWD/model-files.sha256") && echo "verified: $snap"
