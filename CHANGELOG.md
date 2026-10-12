@@ -6,12 +6,23 @@ numbers, not promises.
 
 ## Recipe tooling (between builds)
 
+- `launch.sh` runs the server in your terminal by default, so you watch it load and Ctrl-C stops it;
+  `--detach` keeps the old background behaviour (scripts that expect `launch.sh` to return must now add `--detach`).
+  Thanks to whpthomas on the NVIDIA forum.
+- `preflight.sh` checks the Hugging Face CLI (it needs `hf cache verify` and `prune`) and the cache: the cache in use,
+  every checkpoint file present and inside the mounted folder, partial downloads and old revisions, with the command
+  that fixes each; `--verify` hashes the checkpoint against the hub and `--fix` re-runs `download.sh`. It never deletes.
+- `preflight.sh` reports other GPU processes and containers holding memory (they shrink the KV pool) and the
+  checkpoint disk's read-ahead (8192 KB loads about 100 s faster than the 128 KB default).
+- README: an "Upgrading to a newer build" section; builds are tagged `build-<date>-<vllm sha8>`.
+- Troubleshooting: what each load-time warning means, and how to keep read-ahead across reboots.
 - 2026-10-11: `launch.sh` finds the checkpoint the way `hf download` does (`HF_HUB_CACHE`, then `HF_HOME/hub`, then
   `~/.cache/huggingface/hub`) and, before starting, checks that every model file resolves inside the folder the
   container mounts, naming any that does not (a cache moved to another disk behind a symlink loaded on the host but
   failed in the container with `FileNotFoundError`; reported by rtamax on the NVIDIA forum). It also refuses to start
   with less than 98 GiB of memory available (`MIN_FREE_GIB`) or when a container of the same name exists, and lists
-  other GPU containers and processes; `FORCE=1` skips those. `download.sh` verifies in the same cache.
+  other GPU containers and processes; `FORCE=1` skips the memory check and the list. `download.sh` verifies in the
+  same cache.
 
 <!-- generated:entries -->
 ## 2026-10-08-81198e97

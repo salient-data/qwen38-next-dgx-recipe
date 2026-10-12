@@ -65,7 +65,11 @@ How to read this table:
 | About 200 GB free disk (checkpoint ~135 GB, image ~25 GB) | `df -h ~/.cache/huggingface` |
 | A Hugging Face token with access to the model | `hf auth whoami` |
 
-`./recipe/preflight.sh` runs these checks without changing anything.
+`./recipe/preflight.sh` runs these checks without changing anything. It also checks the Hugging Face CLI and cache:
+which cache is in use (`HF_HUB_CACHE`, `HF_HOME`), that every checkpoint file is present and readable from the
+container, and leftover partial downloads or old revisions. It never deletes anything; it prints the command that fixes
+each problem. `--verify` hashes every checkpoint file against the hub (`hf cache verify`; it reads all ~135 GB), and
+`--fix` re-runs `download.sh`, which resumes partial downloads and only adds files.
 
 ## Quick start
 
@@ -75,15 +79,42 @@ git clone https://github.com/salient-data/qwen38-next-dgx-recipe && cd qwen38-ne
 ./recipe/download.sh             # hf download at the pinned revision, then verifies file hashes
 ./recipe/build.sh                # pulls the pinned base by digest (~10 GB download, ~25 GB on disk), applies the patches
 ./recipe/launch.sh --print       # shows the exact docker command
-./recipe/launch.sh               # starts the server; loading takes about 11 minutes
-./recipe/verify.sh               # two known-answer requests
+./recipe/launch.sh               # runs it in this terminal so you watch it load (10-12 minutes, below); Ctrl-C stops it
+./recipe/verify.sh               # from a second terminal: two known-answer requests
 ./recipe/stop.sh                 # stop and remove the container
 ```
+
+Once you trust it, `./recipe/launch.sh --detach` runs the same command in the background (follow it with
+`docker logs -f qwen38-flash-next`). On a cold disk most of the load is reading weights; raising the disk's
+read-ahead from the distro default of 128 KB to 8192 KB takes a cold load from about 12 minutes to about 10
+(707 to 606 s on our Spark; `preflight.sh` checks it; see
+[troubleshooting](docs/troubleshooting.md)).
 
 The server binds `127.0.0.1:8000` and serves an OpenAI-compatible API with the model name `qwen3.8-flash-next`.
 `BIND=0.0.0.0` exposes it on every interface **without authentication** unless you also set `VLLM_API_KEY`
 (passed to the container as an environment variable; clients then send `Authorization: Bearer <key>`).
 Thinking is off by default; turn it on per request with `"chat_template_kwargs": {"enable_thinking": true}`.
+
+## Upgrading to a newer build
+
+Each build is one [CHANGELOG](CHANGELOG.md) entry and one git tag, `build-<date>-<vllm sha8>` (the first,
+`build-2026-10-08-81198e97`, is tagged after the fact); `main` is always the newest build that passed our gates.
+Changes to the scripts alone (like this section) land on `main` between builds and are listed in the CHANGELOG
+under "Recipe tooling". To move to the newest build:
+
+```bash
+./recipe/stop.sh
+git checkout main && git pull    # or: git checkout build-<date>-<sha8> for a specific build
+./recipe/preflight.sh
+./recipe/download.sh             # downloads only if the model revision changed; verifies the small config and tokenizer files (the hub checks the weights as they download)
+./recipe/build.sh                # builds the new image; the old one stays until you remove it
+./recipe/launch.sh --detach      # in the background, so the next line can run (or run launch.sh in its own terminal)
+./recipe/verify.sh               # once it answers, 10-12 minutes later
+```
+
+To go back, `git checkout` the previous tag and run `build.sh` and `launch.sh` again; its image is still on disk
+unless you removed it (`docker images qwen38-next-dgx`). A build's speed and quality numbers are in its results
+directory and do not carry over to another build.
 
 ## What is pinned
 

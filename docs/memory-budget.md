@@ -32,8 +32,9 @@ result in this repo carries a GSM8K score and `verify.sh` asks two questions wit
 
 - Start from a quiet machine: about 100 GiB free (`free -g`). Other GPU work, a desktop session with large
   browser tabs, or another inference server will make the load fail or the KV pool smaller.
-- Loading takes about 11 minutes, mostly reading 124 GiB from NVMe. A second load in a row is faster when the
-  page cache still holds the files.
+- Loading takes 10-12 minutes from a cold page cache: about 12 at the distro's 128 KB disk read-ahead, about 10 at
+  8192 KB (707 and 606 s on our Spark). Most of it is the weight load, which runs on one CPU core rather than at disk
+  speed. A second load in a row is faster when the page cache still holds the files.
 - NVIDIA's DGX Spark playbooks suggest flushing the page cache if you hit memory errors that should not happen:
   `sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`. The first load after that is slower.
 - `nvidia-smi --query-gpu=memory.*` reports N/A on GB10; use `free -g` and the vLLM log lines above.
