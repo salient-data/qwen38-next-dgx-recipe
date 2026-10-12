@@ -4,6 +4,15 @@ Newest first. Each entry is one build that passed our gates on our Spark: the vL
 patches it carries, its headline numbers and its results directory (never overwritten). Treat them as one host's
 numbers, not promises.
 
+## Recipe tooling (between builds)
+
+- 2026-10-11: `launch.sh` finds the checkpoint the way `hf download` does (`HF_HUB_CACHE`, then `HF_HOME/hub`, then
+  `~/.cache/huggingface/hub`) and, before starting, checks that every model file resolves inside the folder the
+  container mounts, naming any that does not (a cache moved to another disk behind a symlink loaded on the host but
+  failed in the container with `FileNotFoundError`; reported by rtamax on the NVIDIA forum). It also refuses to start
+  with less than 98 GiB of memory available (`MIN_FREE_GIB`) or when a container of the same name exists, and lists
+  other GPU containers and processes; `FORCE=1` skips those. `download.sh` verifies in the same cache.
+
 <!-- generated:entries -->
 ## 2026-10-08-81198e97
 
