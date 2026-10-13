@@ -17,7 +17,7 @@
 # Binds 127.0.0.1 by default. BIND=0.0.0.0 exposes it on every interface WITHOUT authentication unless you
 # also set VLLM_API_KEY (passed to the container as an environment variable, which vLLM reads).
 set -euo pipefail
-cd "$(dirname "$0")"; source ./pins.env
+cd "$(dirname "$0")"; source ./pins.env; source ./prod-image.sh
 DETACH=0; PRINT=0; PROD=0
 EXTRA=()
 while (( $# )); do
@@ -32,7 +32,7 @@ while (( $# )); do
   shift
 done
 # The prod path runs the image our nightly measured, pinned by its registry digest (QFN-155); the dev path, the default,
-# runs the image ./build.sh makes from the same pinned base and patches.
+# runs the image ./build.sh makes from the pinned base and the published patches: the same serving code, a different image.
 if (( PROD )); then
   [[ -n "${PROD_IMAGE:-}" ]] || { echo "this build has no published image (no PROD_IMAGE in pins.env): build it with ./build.sh and run ./launch.sh without --prod" >&2; exit 1; }
   IMAGE="$PROD_IMAGE"
@@ -112,8 +112,7 @@ fi
 (( bad == 0 )) || { echo "re-run ./download.sh for missing files; keep snapshots/ and blobs/ under one folder and set MODEL_DIR to it (docs/troubleshooting.md)" >&2; exit 1; }
 if (( PROD )); then
   docker image inspect "$IMAGE" > /dev/null 2>&1 || { echo "image $IMAGE not pulled; run ./pull.sh" >&2; exit 1; }
-  [[ -z "${PROD_IMAGE_ID:-}" || "$(docker image inspect -f '{{.Id}}' "$IMAGE")" == "$PROD_IMAGE_ID" ]] \
-    || { echo "the image under $IMAGE is not $PROD_IMAGE_ID, the build this recipe measured; run ./pull.sh again" >&2; exit 1; }
+  is_prod_image "$IMAGE" || { echo "the image under $IMAGE is not the build this recipe measured (config $PROD_IMAGE_ID); run ./pull.sh again" >&2; exit 1; }
 else
   docker image inspect "$IMAGE" > /dev/null 2>&1 || { echo "image $IMAGE not built; run ./build.sh" >&2; exit 1; }
 fi

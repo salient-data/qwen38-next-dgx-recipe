@@ -4,7 +4,8 @@
 # prod: the exact image our nightly gates measured, pulled from the registry by digest, run in the background
 #   ./qfn up                 pull (signature checked if cosign is installed), start, wait until it answers, warm up, verify
 #
-# dev: build the image yourself from the pinned vLLM nightly plus recipe/patches and watch it load (full transparency)
+# dev: rebuild the same serving code yourself from the pinned vLLM nightly plus recipe/patches and watch it load
+#   (full transparency; a different image from prod's: same Python code, other file names and build stamps)
 #   ./qfn dev                build, then start in this terminal (Ctrl-C stops and removes it)
 #
 # steps
@@ -19,10 +20,10 @@
 #   ./qfn upgrade            git checkout main && git pull, then pull the new image (or rebuild it if none is published)
 #   ./qfn help
 #
-# Both paths use the same serve.args and serve.env; only the image's origin differs. Environment knobs are those of
+# Both paths use the same serve.args and serve.env and the same serving code (AST-identical, checked at publish time). Environment knobs are those of
 # launch.sh (BIND, PORT, NAME, MODEL_DIR, CACHE_DIR, WARMUP, FORCE, VLLM_API_KEY, MIN_FREE_GIB).
 set -euo pipefail
-here="$(cd "$(dirname "$0")" && pwd)"; cd "$here"; source ./pins.env
+here="$(cd "$(dirname "$0")" && pwd)"; cd "$here"; source ./pins.env; source ./prod-image.sh
 BIND="${BIND:-127.0.0.1}"; PORT="${PORT:-8000}"; NAME="${NAME:-qwen38-flash-next}"
 CACHE_DIR="${CACHE_DIR:-$HOME/.cache/qwen38-next-dgx-recipe}"
 host="$BIND"; [[ "$host" == 0.0.0.0 ]] && host=127.0.0.1
@@ -67,7 +68,7 @@ status() {
     echo "container  $NAME: not present"
   else
     ref="$(docker container inspect -f '{{.Config.Image}}' "$NAME")"; id="$(docker container inspect -f '{{.Image}}' "$NAME")"
-    if [[ -n "${PROD_IMAGE_ID:-}" && "$id" == "$PROD_IMAGE_ID" ]]; then kind="prod (the measured build)"
+    if is_prod_id "$id"; then kind="prod (the measured build)"
     elif [[ "$id" == "$(docker image inspect -f '{{.Id}}' "$IMAGE" 2>/dev/null || true)" ]]; then kind="dev (your local build of $IMAGE)"
     else kind="neither this build's published image nor your local build: another build is running"; fi
     echo "container  $NAME: $state, image $ref"
@@ -85,7 +86,8 @@ upgrade() {
   git -C "$root" diff --quiet && git -C "$root" diff --cached --quiet \
     || { echo "you have local changes in $root; commit or stash them first (git status)" >&2; exit 1; }
   local old="$RECIPE_BUILD"
-  git -C "$root" checkout main && git -C "$root" pull --ff-only
+  if ! git -C "$root" checkout main; then echo "could not switch to main; nothing changed" >&2; exit 1; fi
+  if ! git -C "$root" pull --ff-only; then echo "git pull failed; you are on main at the old build" >&2; exit 1; fi
   # Re-read the pins of the new build in a fresh shell, then fetch its image.
   local new; new="$(bash -c 'source ./pins.env; echo "$RECIPE_BUILD"')"
   echo "build $old -> $new"
