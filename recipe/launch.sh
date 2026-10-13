@@ -27,6 +27,19 @@ CACHE_DIR="${CACHE_DIR:-$HOME/.cache/qwen38-next-dgx-recipe}"
 BIND="${BIND:-127.0.0.1}"; PORT="${PORT:-8000}"; NAME="${NAME:-qwen38-flash-next}"
 mapfile -t ARGS < <(grep -v '^#' serve.args | sed '/^$/d')
 mapfile -t ENVS < <(grep -v '^#' serve.env | sed '/^$/d')
+# A sparse draft head (vllm#59740) reads a token map at /root/.cache/draft-token-maps/<sha256>.json. The map ships in
+# draft-token-maps/ under its own sha256; it is checked here (also for --print) and copied into CACHE_DIR, which the
+# container mounts at /root/.cache, just before the container starts. A build whose serve.args names no map skips this.
+TOKEN_MAP=""; tm_src=""
+for a in "${ARGS[@]}"; do
+  [[ "$a" == *'"draft_token_map"'* ]] || continue
+  [[ "$a" =~ \"draft_token_map\":\ *\"/root/\.cache/draft-token-maps/([0-9a-f]{64})\.json\" ]] \
+    || { echo "serve.args names a draft_token_map that is not /root/.cache/draft-token-maps/<sha256>.json; this launcher cannot install it" >&2; exit 1; }
+  TOKEN_MAP="${BASH_REMATCH[1]}"; tm_src="draft-token-maps/$TOKEN_MAP.json"
+  [[ -f "$tm_src" ]] || { echo "serve.args names the draft token map $TOKEN_MAP.json, but recipe/$tm_src is missing; git checkout recipe/draft-token-maps (or re-clone) restores it" >&2; exit 1; }
+  [[ "$(sha256sum "$tm_src" | cut -d' ' -f1)" == "$TOKEN_MAP" ]] \
+    || { echo "recipe/$tm_src does not hash to its name (edited or corrupted); git checkout recipe/draft-token-maps restores it" >&2; exit 1; }
+done
 if (( DETACH )); then mode=(-d --restart no)
 else mode=(--rm -i); [[ -t 0 && -t 1 ]] && mode+=(-t); fi
 cmd=(docker run "${mode[@]}" --name "$NAME" --gpus all --network host --ipc host --shm-size 32g --ulimit memlock=-1:-1
@@ -76,6 +89,20 @@ if [[ "$ra" =~ ^[0-9]+$ && "$ra" -lt 8192 ]]; then
   echo "note: read-ahead on the checkpoint's disk is ${ra} KB; 8192 takes a cold load from about 12 to about 10 minutes (see docs/troubleshooting.md)." >&2
 fi
 mkdir -p "$CACHE_DIR"
+if [[ -n "$TOKEN_MAP" ]]; then
+  tm_dst="$CACHE_DIR/draft-token-maps/$TOKEN_MAP.json"
+  if [[ "$(sha256sum "$tm_dst" 2>/dev/null | cut -d' ' -f1)" != "$TOKEN_MAP" ]]; then
+    # Earlier containers run as root and may have left root-owned folders in CACHE_DIR, which this user cannot write.
+    if ! { mkdir -p "${tm_dst%/*}" && cp "$tm_src" "$tm_dst.tmp.$$" && mv -f "$tm_dst.tmp.$$" "$tm_dst"; } 2> /dev/null; then
+      rm -f "$tm_dst.tmp.$$" 2> /dev/null || true
+      d="${tm_dst%/*}"; [[ -d "$d" ]] || d="$CACHE_DIR"
+      echo "could not copy recipe/$tm_src into $d (owned by $(stat -c %U "$d" 2>/dev/null || echo '?'); you are $(id -un))." >&2
+      echo "install it as root once: sudo install -D -m 0644 $PWD/$tm_src $tm_dst" >&2
+      echo "or take the folder back: sudo chown -R $(id -un) $d" >&2; exit 1
+    fi
+  fi
+  echo "draft token map $TOKEN_MAP.json installed in $CACHE_DIR/draft-token-maps/"
+fi
 # Warm-up: the first requests compile a few Triton kernels (the speculative-decoding rejection sampler, logits
 # statistics), which the first user would see as a slow answer. A helper waits for the server, sends one greedy and
 # one sampled request, and exits; it also exits if the container stops (Ctrl-C stops it with the server).

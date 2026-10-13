@@ -6,6 +6,11 @@ numbers, not promises.
 
 ## Recipe tooling (between builds)
 
+- `launch.sh` can serve a build with a sparse draft head (vllm#59740), whose drafter reads a token map at
+  `/root/.cache/draft-token-maps/<sha256>.json`. When `serve.args` names one, `launch.sh` checks that
+  `recipe/draft-token-maps/<sha256>.json` exists and hashes to its name, and copies it into `CACHE_DIR` (mounted at
+  `/root/.cache`) before `docker run`; it refuses to start otherwise, and `--print` checks without copying.
+  `preflight.sh` reports the same check. A build that names no map runs exactly as before.
 - Once the server answers, `launch.sh` sends it two short requests (one greedy, one sampled), so the Triton kernels
   that otherwise compile during the first request (a slow first answer) compile before you send yours. In the
   foreground it prints `warm-up done`; `WARMUP=0` skips it. `preflight.sh` reads the hf CLI version in both forms

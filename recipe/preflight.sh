@@ -84,4 +84,12 @@ ra="$(cat "/sys/block/$dev/queue/read_ahead_kb" 2>/dev/null || true)"
 if [[ "$ra" =~ ^[0-9]+$ ]]; then
   (( ra >= 8192 )) && ok "read-ahead ${ra} KB on $dev" || warn "read-ahead ${ra} KB on $dev; for a faster load: sudo sh -c 'echo 8192 > /sys/block/$dev/queue/read_ahead_kb' (resets at reboot; docs/troubleshooting.md)"
 fi
+# A sparse draft head's token map (named in serve.args) must ship in draft-token-maps/ and hash to its name.
+tm="$(grep -o '"draft_token_map": *"[^"]*"' serve.args 2>/dev/null | head -1 | sed 's/.*"\([^"]*\)"$/\1/')"
+if [[ -n "$tm" ]]; then
+  h="$(basename "$tm" .json)"
+  if [[ "$tm" != /root/.cache/draft-token-maps/*.json || ! "$h" =~ ^[0-9a-f]{64}$ ]]; then bad "serve.args names a draft token map launch.sh cannot install: $tm"
+  elif [[ "$(sha256sum "draft-token-maps/$h.json" 2>/dev/null | cut -d' ' -f1)" == "$h" ]]; then ok "draft token map recipe/draft-token-maps/$h.json present and intact"
+  else bad "draft token map recipe/draft-token-maps/$h.json missing or not hashing to its name: git checkout recipe/draft-token-maps"; fi
+fi
 exit $FAILED
