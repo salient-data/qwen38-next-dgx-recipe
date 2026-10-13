@@ -22,9 +22,39 @@ echo "preflight for $RECIPE_NAME ($RECIPE_BUILD)"
 [[ "$(uname -m)" == aarch64 ]] && ok "aarch64" || bad "architecture $(uname -m): this recipe is for DGX Spark (aarch64)"
 gpu="$(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null | head -1)"
 [[ "$gpu" == "NVIDIA GB10,"* ]] && ok "GPU: $gpu" || bad "GPU: '${gpu:-none}' (needs NVIDIA GB10)"
-drv="${gpu##*, }"; [[ "$drv" == "$TESTED_DRIVER" ]] && ok "driver $drv (tested)" || warn "driver ${drv:-?}; tested with $TESTED_DRIVER ($TESTED_DRIVER_FLAVOUR)"
+# Versions: older than what we tested warns with the fix; newer is fine (we test on each build and update these).
+TESTED_DOCKER="29.6.2"; TESTED_BUILDX="0.35.0"; TESTED_CTK="1.20.1"
+UPGRADE="update DGX OS: sudo apt update && sudo apt full-upgrade, then reboot"
+older() { [[ -n "$1" && "$1" != "$2" && "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" == "$1" ]]; }
+ver() {   # ver NAME FOUND TESTED FIX
+  if [[ -z "$2" ]]; then warn "$1 version unknown; tested with $3"
+  elif older "$2" "$3"; then warn "$1 $2 is older than the $3 we tested: $4"
+  elif [[ "$2" == "$3" ]]; then ok "$1 $2 (tested)"
+  else ok "$1 $2 (newer than the $3 we tested)"; fi
+}
+drv="${gpu##*, }"; [[ "$gpu" == *", "* ]] || drv=""
+ver driver "$drv" "$TESTED_DRIVER" "$UPGRADE"
+# The image's CUDA needs a driver that supports it; this one is a hard requirement, not a tested version.
+need_cuda="$(docker image inspect "$IMAGE" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | sed -n 's/^NVIDIA_REQUIRE_CUDA=cuda>=\([0-9.]*\).*/\1/p')"
+need_cuda="${need_cuda:-13.0}"
+have_cuda="$(nvidia-smi 2>/dev/null | grep -o 'CUDA Version: [0-9.]*' | awk '{print $3}')"
+if [[ -z "$have_cuda" ]]; then warn "could not read the driver's CUDA version (nvidia-smi); the image needs CUDA $need_cuda or newer"
+elif older "$have_cuda" "$need_cuda"; then bad "the driver supports CUDA $have_cuda; the image needs CUDA $need_cuda or newer: $UPGRADE"
+else ok "driver supports CUDA $have_cuda (the image needs $need_cuda or newer)"; fi
+[[ -r /etc/dgx-release ]] && ok "DGX OS $(sed -n 's/^DGX_OTA_VERSION="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/dgx-release | tail -1)"
 grep -q "Open Kernel Module" /proc/driver/nvidia/version 2>/dev/null && ok "open kernel module driver" || warn "not the open kernel module driver (tested with it)"
-docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia && ok "docker with the nvidia runtime" || bad "docker with the NVIDIA container runtime is required"
+if ! command -v docker > /dev/null; then bad "docker not installed (DGX OS ships it): $UPGRADE"
+elif ! derr="$(timeout 20 docker info 2>&1 > /dev/null)"; then
+  if grep -qi "permission denied" <<< "$derr"; then bad "you cannot use Docker as $(id -un): sudo usermod -aG docker $(id -un), then log out and back in"
+  else bad "Docker is not answering: $(tail -1 <<< "$derr")"; fi
+else
+  ver docker "$(docker version --format '{{.Server.Version}}' 2>/dev/null)" "$TESTED_DOCKER" "$UPGRADE"
+  ver "docker buildx" "$(docker buildx version 2>/dev/null | awk '{print $2}' | sed 's/^v//')" "$TESTED_BUILDX" "$UPGRADE (build.sh needs BuildKit)"
+  ver "NVIDIA Container Toolkit" "$(nvidia-ctk --version 2>/dev/null | sed -n 's/.*version \([0-9.]*\).*/\1/p' | head -1)" "$TESTED_CTK" "$UPGRADE"
+  docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia && ok "docker with the nvidia runtime" || bad "docker with the NVIDIA container runtime is required: sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker"
+fi
+missing_tools=""; for t in curl python3 git; do command -v "$t" > /dev/null || missing_tools+="$t "; done
+[[ -z "$missing_tools" ]] && ok "curl, python3 and git present" || warn "missing ${missing_tools}(verify.sh, the warm-up and upgrades use them): sudo apt install ${missing_tools% }"
 mem_gib=$(( $(awk '/MemAvailable/{print $2}' /proc/meminfo) / 1048576 ))
 (( mem_gib >= ${MIN_FREE_GIB:-98} )) && ok "MemAvailable ${mem_gib} GiB" || warn "MemAvailable ${mem_gib} GiB: the server needs about 98 GiB (launch.sh refuses below MIN_FREE_GIB); stop other GPU workloads first (see docs/memory-budget.md)"
 disk_gib=$(( $(df --output=avail -B1G "$(d="${HF_HUB_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}/hub}"; while [[ ! -d "$d" ]]; do d="$(dirname "$d")"; done; echo "$d")" 2>/dev/null | tail -1 || echo 0) ))

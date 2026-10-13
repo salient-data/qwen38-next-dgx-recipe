@@ -192,13 +192,16 @@ See [bench/README.md](bench/README.md): the third-party harness (`bench/run-thir
 **Asking for help.** Run one command and paste its output into your forum post or issue:
 
 ```bash
-./recipe/diagnose.sh                       # host, driver, Docker, memory, disk, checkpoint, preflight, launch command
-./recipe/launch.sh 2>&1 | tee -i launch.log && ./recipe/diagnose.sh launch.log   # if the server fails to start
+./recipe/diagnose.sh            # host, driver, Docker, memory, disk, checkpoint, preflight, launch command
+# if the server fails to start, save its log and include it:
+WARMUP=0 ./recipe/launch.sh 2>&1 | tee -i launch.log; ./recipe/diagnose.sh launch.log
+./recipe/diagnose.sh --issue     # same report; then, only if you answer y, filed as a public GitHub issue
 ```
 
-It is read-only: it changes, starts and sends nothing. It saves the report as `qfn-diagnose-<time>.txt`, already
-wrapped in a code block, with your user name, home folder and host name replaced by placeholders. Read it before you
-post it.
+It is read-only and sends nothing unless you confirm `--issue` (which uses the `gh` CLI if you are signed in, or
+prints a link to a new issue to paste the report into). It saves the report as `qfn-diagnose-<time>.txt`, already
+wrapped in a code block, with your user name, home folder, host name, API keys and tokens replaced by placeholders.
+Read it before you share it.
 
 ## How builds are updated
 
