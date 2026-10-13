@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Start the server with the exact arguments this recipe was measured with.
 #   ./launch.sh               run it in this terminal: you watch it load (10-12 minutes), Ctrl-C stops and removes it
+#                             (during the weight load vLLM acts on Ctrl-C only once the load ends; ./stop.sh is at once)
 #   ./launch.sh --detach, -d  run it in the background (production); follow with docker logs -f, stop with ./stop.sh
 #   ./launch.sh --print       print the docker command, run nothing (combine with --detach to see that form)
+#   ./launch.sh [-d] -- ARGS  change or add vLLM arguments for this run, e.g. -- --max-model-len 131072: a flag already
+#                             in serve.args gets the new value, any other is added; the run is then not the measured setup
 # Before starting it checks that every checkpoint file resolves inside the folder the container mounts, that about
 # 98 GiB of memory is free (MIN_FREE_GIB) and that no container of the same name exists, and lists other GPU
 # containers and processes; FORCE=1 skips the memory check and the list.
@@ -12,13 +15,16 @@
 set -euo pipefail
 cd "$(dirname "$0")"; source ./pins.env
 DETACH=0; PRINT=0
-for a in "$@"; do
-  case "$a" in
+EXTRA=()
+while (( $# )); do
+  case "$1" in
     --detach|-d) DETACH=1 ;;
     --print) PRINT=1 ;;
     -h|--help) awk 'NR > 1 && !/^#/ {exit} NR > 1' "$(basename "$0")"; exit 0 ;;
-    *) echo "unknown argument: $a (see ./launch.sh --help)" >&2; exit 2 ;;
+    --) shift; EXTRA=("$@"); break ;;
+    *) echo "unknown argument: $1 (see ./launch.sh --help; vLLM arguments go after --)" >&2; exit 2 ;;
   esac
+  shift
 done
 # The Hugging Face cache: HF_HUB_CACHE if set (hf download writes there), else $HF_HOME/hub, else ~/.cache/huggingface/hub.
 HUB="${HF_HUB_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}/hub}"
@@ -27,6 +33,24 @@ CACHE_DIR="${CACHE_DIR:-$HOME/.cache/qwen38-next-dgx-recipe}"
 BIND="${BIND:-127.0.0.1}"; PORT="${PORT:-8000}"; NAME="${NAME:-qwen38-flash-next}"
 mapfile -t ARGS < <(grep -v '^#' serve.args | sed '/^$/d')
 mapfile -t ENVS < <(grep -v '^#' serve.env | sed '/^$/d')
+# Arguments after --: a flag serve.args already has gets the new value in place (vLLM warns about repeated flags),
+# any other flag is added. --flag value, --flag=value and bare flags (--enforce-eager) are accepted.
+i=0
+while (( i < ${#EXTRA[@]} )); do
+  t="${EXTRA[i]}"; val=""; hasval=0
+  [[ "$t" == --?* ]] || { echo "after --, expected a vLLM flag starting with --, got: $t" >&2; exit 2; }
+  if [[ "$t" == *=* ]]; then flag="${t%%=*}"; val="${t#*=}"; hasval=1; i=$((i + 1))
+  elif (( i + 1 < ${#EXTRA[@]} )) && [[ "${EXTRA[i+1]}" != --* ]]; then flag="$t"; val="${EXTRA[i+1]}"; hasval=1; i=$((i + 2))
+  else flag="$t"; i=$((i + 1)); fi
+  j=-1; for k in "${!ARGS[@]}"; do [[ "${ARGS[k]}" == "$flag" ]] && { j=$k; break; }; done
+  if (( j >= 0 && hasval )) && (( j + 1 < ${#ARGS[@]} )) && [[ "${ARGS[j+1]}" != --* ]]; then
+    echo "override: $flag ${val} (serve.args: ${ARGS[j+1]})" >&2; ARGS[j+1]="$val"
+  elif (( j >= 0 && ! hasval )); then echo "override: $flag (already in serve.args)" >&2
+  else
+    if (( hasval )); then echo "override: adding $flag $val" >&2; else echo "override: adding $flag" >&2; fi; ARGS+=("$flag"); (( hasval )) && ARGS+=("$val")
+  fi
+done
+(( ${#EXTRA[@]} == 0 )) || echo "note: these overrides change the measured configuration; say so when you report numbers" >&2
 # A sparse draft head (vllm#59740) reads a token map at /root/.cache/draft-token-maps/<sha256>.json. The map ships in
 # draft-token-maps/ under its own sha256; it is checked here (also for --print) and copied into CACHE_DIR, which the
 # container mounts at /root/.cache, just before the container starts. A build whose serve.args names no map skips this.
@@ -132,5 +156,6 @@ else
   [[ "${WARMUP:-1}" == 0 ]] || { warmup & }
   echo "starting $NAME in this terminal; it answers when the log says 'Application startup complete'."
   echo "from another terminal: ./verify.sh checks it, ./stop.sh (or Ctrl-C here) stops it."
+  echo "while the weights load (about 10 minutes), vLLM acts on Ctrl-C only when the load ends; ./stop.sh stops it at once."
   exec "${cmd[@]}"
 fi

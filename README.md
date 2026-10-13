@@ -88,7 +88,12 @@ When the server answers, `launch.sh` sends it two short warm-up requests so the 
 kernel compilation (`warm-up done` in the foreground; `WARMUP=0` skips it).
 
 Once you trust it, `./recipe/launch.sh --detach` runs the same command in the background (follow it with
-`docker logs -f qwen38-flash-next`). On a cold disk most of the load is reading weights; raising the disk's
+`docker logs -f qwen38-flash-next`). Ctrl-C during the weight load takes effect only when the load ends; `./recipe/stop.sh`
+stops it at once.
+
+To change a vLLM argument for one run, put it after `--`: `./recipe/launch.sh -- --max-model-len 131072`. A flag
+`serve.args` already has gets the new value, and any other flag is added; `launch.sh` prints each change. Leave
+`serve.args` itself unedited, so `git pull` stays clean, and say what you changed when you report numbers. On a cold disk most of the load is reading weights; raising the disk's
 read-ahead from the distro default of 128 KB to 8192 KB takes a cold load from about 12 minutes to about 10
 (707 to 606 s on our Spark; `preflight.sh` checks it; see
 [troubleshooting](docs/troubleshooting.md)).
