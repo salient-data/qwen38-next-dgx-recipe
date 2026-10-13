@@ -39,13 +39,21 @@ i=0
 while (( i < ${#EXTRA[@]} )); do
   t="${EXTRA[i]}"; val=""; hasval=0
   [[ "$t" == --?* ]] || { echo "after --, expected a vLLM flag starting with --, got: $t" >&2; exit 2; }
+  case "${t%%=*}" in
+    --host|--port) echo "set BIND=... or PORT=... instead of ${t%%=*}: launch.sh passes them, and the warm-up and verify.sh use them" >&2; exit 2 ;;
+    --served-model-name) echo "warning: the warm-up and verify.sh ask for the model as $SERVED_NAME" >&2 ;;
+    --*.*) echo "dotted flags (${t%%=*}) replace the whole JSON value in vLLM; pass the full ${t%%.*} JSON instead (see serve.args)" >&2; exit 2 ;;
+  esac
+  [[ "$t" == *=* && -z "${t#*=}" ]] && { echo "empty value in $t" >&2; exit 2; }
   if [[ "$t" == *=* ]]; then flag="${t%%=*}"; val="${t#*=}"; hasval=1; i=$((i + 1))
   elif (( i + 1 < ${#EXTRA[@]} )) && [[ "${EXTRA[i+1]}" != --* ]]; then flag="$t"; val="${EXTRA[i+1]}"; hasval=1; i=$((i + 2))
   else flag="$t"; i=$((i + 1)); fi
   j=-1; for k in "${!ARGS[@]}"; do [[ "${ARGS[k]}" == "$flag" ]] && { j=$k; break; }; done
   if (( j >= 0 && hasval )) && (( j + 1 < ${#ARGS[@]} )) && [[ "${ARGS[j+1]}" != --* ]]; then
     echo "override: $flag ${val} (serve.args: ${ARGS[j+1]})" >&2; ARGS[j+1]="$val"
-  elif (( j >= 0 && ! hasval )); then echo "override: $flag (already in serve.args)" >&2
+  elif (( j >= 0 && ! hasval )); then
+    if (( j + 1 < ${#ARGS[@]} )) && [[ "${ARGS[j+1]}" != --* ]]; then echo "$flag needs a value (serve.args has ${ARGS[j+1]})" >&2; exit 2; fi
+    echo "override: $flag (already in serve.args)" >&2
   else
     if (( hasval )); then echo "override: adding $flag $val" >&2; else echo "override: adding $flag" >&2; fi; ARGS+=("$flag"); (( hasval )) && ARGS+=("$val")
   fi
@@ -58,7 +66,7 @@ TOKEN_MAP=""; tm_src=""
 for a in "${ARGS[@]}"; do
   [[ "$a" == *'"draft_token_map"'* ]] || continue
   [[ "$a" =~ \"draft_token_map\":\ *\"/root/\.cache/draft-token-maps/([0-9a-f]{64})\.json\" ]] \
-    || { echo "serve.args names a draft_token_map that is not /root/.cache/draft-token-maps/<sha256>.json; this launcher cannot install it" >&2; exit 1; }
+    || { echo "the arguments (serve.args or the -- overrides) name a draft_token_map that is not /root/.cache/draft-token-maps/<sha256>.json; this launcher cannot install it" >&2; exit 1; }
   TOKEN_MAP="${BASH_REMATCH[1]}"; tm_src="draft-token-maps/$TOKEN_MAP.json"
   [[ -f "$tm_src" ]] || { echo "serve.args names the draft token map $TOKEN_MAP.json, but recipe/$tm_src is missing; git checkout recipe/draft-token-maps (or re-clone) restores it" >&2; exit 1; }
   [[ "$(sha256sum "$tm_src" | cut -d' ' -f1)" == "$TOKEN_MAP" ]] \
