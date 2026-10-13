@@ -6,6 +6,11 @@ numbers, not promises.
 
 ## Recipe tooling (between builds)
 
+- `recipe/diagnose.sh` gathers what we need to help with a problem into one report to paste into a forum post or an
+  issue: host, DGX OS, driver, Docker, memory, the checkpoint's disk and file system, `preflight.sh`, the exact launch
+  command, kernel out-of-memory messages and, from the container or a saved log (`./recipe/launch.sh 2>&1 | tee -i
+  launch.log`), the server's memory lines and its last lines. It is read-only, sends nothing, and replaces your user
+  name, home folder and host name with placeholders.
 - `launch.sh` can serve a build with a sparse draft head (vllm#59740), whose drafter reads a token map at
   `/root/.cache/draft-token-maps/<sha256>.json`. When `serve.args` names one, `launch.sh` checks that
   `recipe/draft-token-maps/<sha256>.json` exists and hashes to its name, and copies it into `CACHE_DIR` (mounted at

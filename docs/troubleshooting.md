@@ -18,5 +18,7 @@
 | HTTP 400 when setting `reasoning_effort` | The chat template accepts only `low`, `medium`, `xhigh` | Use one of those values |
 | Slower than the results table | Other load on the box, thinking on, non-English text (the drafter covers token ids below 65,536), or a different driver | Compare with `./recipe/launch.sh --print` and the pins; report with the issue template |
 
-Reporting a reproduction or a problem: open an issue with the
+Reporting a reproduction or a problem: run `./recipe/diagnose.sh` (add a saved server log if the start failed:
+`./recipe/launch.sh 2>&1 | tee -i launch.log`, then `./recipe/diagnose.sh launch.log`) and paste its report into
+your forum post, or open an issue with the
 [reproduction report template](../.github/ISSUE_TEMPLATE/reproduction-report.md).

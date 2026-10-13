@@ -189,6 +189,17 @@ See [bench/README.md](bench/README.md): the third-party harness (`bench/run-thir
 [docs/troubleshooting.md](docs/troubleshooting.md): slow loads, out-of-memory at boot, fluent but wrong answers
 (the PLE scale trap), and how to report a reproduction ([issue template](.github/ISSUE_TEMPLATE/reproduction-report.md)).
 
+**Asking for help.** Run one command and paste its output into your forum post or issue:
+
+```bash
+./recipe/diagnose.sh                       # host, driver, Docker, memory, disk, checkpoint, preflight, launch command
+./recipe/launch.sh 2>&1 | tee -i launch.log && ./recipe/diagnose.sh launch.log   # if the server fails to start
+```
+
+It is read-only: it changes, starts and sends nothing. It saves the report as `qfn-diagnose-<time>.txt`, already
+wrapped in a code block, with your user name, home folder and host name replaced by placeholders. Read it before you
+post it.
+
 ## How builds are updated
 
 We rebuild every night on vLLM main with the same patch series (and drop a patch once vLLM contains it). A build
