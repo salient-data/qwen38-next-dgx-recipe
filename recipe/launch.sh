@@ -10,6 +10,8 @@
 # 98 GiB of memory is free (MIN_FREE_GIB) and that no container of the same name exists, and lists other GPU
 # containers and processes; FORCE=1 skips the memory check and the list.
 # Once the server answers, a helper sends two short requests so first-request kernels compile now (WARMUP=0 skips).
+# During the load, a memory watch warns when another process grows by 2 GiB or more (MEMWATCH=0 skips; log in
+# CACHE_DIR/logs/).
 # Binds 127.0.0.1 by default. BIND=0.0.0.0 exposes it on every interface WITHOUT authentication unless you
 # also set VLLM_API_KEY (passed to the container as an environment variable, which vLLM reads).
 set -euo pipefail
@@ -155,13 +157,77 @@ warmup() {
   done
   echo "warm-up done: the server is ready and its first-request kernels are compiled" >&2
 }
+# Memory watch: on a Spark, CPU and GPU share one memory pool, and vLLM sizes its KV cache from what is left after the
+# weight load. Anything else that grows during the load shrinks the KV cache or fails the start. A helper samples
+# every 10 s from the container's start until the server answers or stops: free memory, and the memory of every
+# process outside the container (CPU memory and GPU memory). It warns when one grows by 2 GiB or more, and ends with a
+# summary. The log is kept in $CACHE_DIR/logs/ (diagnose.sh includes the newest one). MEMWATCH=0 skips it.
+memwatch() {
+  local lf="$1" cid="" i host="$BIND" auth=() f p g n v avail minavail=999999999 t0 ready=0
+  local -A base=() grown=() pname=() warned=() gpuwarned=()
+  local ins=""
+  set +e   # a helper: a failed read must not end it
+  [[ "$host" == 0.0.0.0 ]] && host=127.0.0.1
+  [[ -n "${VLLM_API_KEY:-}" ]] && auth=(-H "Authorization: Bearer $VLLM_API_KEY")
+  say() { echo "memwatch: $*" >> "$lf"; (( ${MEMWATCH_QUIET:-0} )) || echo "memwatch: $*" >&2; }
+  # The container's processes are those whose cgroup names its id; read once per sample.
+  refresh_inside() { ins=" $(grep -l "$cid" /proc/[0-9]*/cgroup 2>/dev/null | cut -d/ -f3 | tr '\n' ' ')"; }
+  inside() { [[ "$ins" == *" $1 "* ]]; }
+  outside_rss() {   # pid RssAnon(kB) name, for every process outside the container
+    awk -v ins="$ins" 'BEGIN {k = split(ins, a, " "); for (i = 1; i <= k; i++) skip[a[i]] = 1}
+      FNR == 1 {n = ""; p = ""} /^Name:/ {n = $2} /^Pid:/ {p = $2} /^RssAnon:/ {if (!(p in skip)) print p, $2, n}' /proc/[0-9]*/status 2> /dev/null
+  }
+  for i in $(seq 1 60); do cid="$(docker container inspect -f '{{.Id}}' "$NAME" 2>/dev/null)" && [[ -n "$cid" ]] && break; sleep 1; done
+  [[ -n "$cid" ]] || return 0
+  t0=$(date +%s)
+  echo "memwatch for $NAME ($RECIPE_BUILD), started $(date -u +%FT%TZ)" > "$lf"
+  refresh_inside; while read -r p v n; do base[$p]=$v; pname[$p]=$n; done < <(outside_rss)
+  echo "start: MemAvailable $(awk '/^MemAvailable:/ {printf "%.1f", $2/1048576}' /proc/meminfo) GiB, ${#base[@]} processes outside the container" >> "$lf"
+  while [[ "$(docker container inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" == true ]]; do
+    refresh_inside; avail=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo); (( avail < minavail )) && minavail=$avail
+    while read -r p v n; do
+      g=$(( v - ${base[$p]:-0} )); pname[$p]=$n; (( g > ${grown[$p]:-0} )) && grown[$p]=$g
+      if (( g >= 2097152 && g / 2097152 > ${warned[$p]:-0} )); then
+        warned[$p]=$(( g / 2097152 ))
+        say "$n (pid $p) grew by $(awk -v k=$g 'BEGIN {printf "%.1f", k/1048576}') GiB during the load; it takes memory from the KV cache"
+      fi
+    done < <(outside_rss)
+    if command -v nvidia-smi > /dev/null; then
+      while IFS=', ' read -r p v n; do
+        [[ "$p" =~ ^[0-9]+$ && "$v" =~ ^[0-9]+$ ]] || continue
+        inside "$p" && continue
+        if (( v >= 1024 )) && [[ -z "${gpuwarned[$p]:-}" ]]; then
+          gpuwarned[$p]=1; say "$n (pid $p) holds $(awk -v m=$v 'BEGIN {printf "%.1f", m/1024}') GiB of GPU memory (the same pool)"
+        fi
+      done < <(nvidia-smi --query-compute-apps=pid,used_memory,process_name --format=csv,noheader,nounits 2>/dev/null)
+    fi
+    echo "$(( $(date +%s) - t0 ))s MemAvailable $(awk -v k=$avail 'BEGIN {printf "%.1f", k/1048576}') GiB" >> "$lf"
+    curl -fsS --max-time 3 "${auth[@]}" "http://$host:$PORT/v1/models" > /dev/null 2>&1 && { ready=1; break; }
+    sleep 10
+  done
+  {
+    echo "summary after $(( $(date +%s) - t0 ))s ($( (( ready )) && echo "server answering" || echo "container stopped")): lowest MemAvailable $(awk -v k=$minavail 'BEGIN {printf "%.1f", k/1048576}') GiB"
+    echo "largest growth outside the container:"
+    for p in "${!grown[@]}"; do echo "${grown[$p]} $p ${pname[$p]}"; done | sort -rn | head -5 |
+      awk '{printf "  %+6.1f GiB  %s (pid %s)\n", $1/1048576, $3, $2}'
+  } >> "$lf"
+  (( ${MEMWATCH_QUIET:-0} )) || echo "memwatch: done; log $lf" >&2
+}
+MWLOG=""
+if [[ "${MEMWATCH:-1}" != 0 ]]; then
+  for d in "$CACHE_DIR/logs" "${TMPDIR:-/tmp}/qwen38-next-dgx-recipe-logs"; do
+    mkdir -p "$d" 2> /dev/null && [[ -w "$d" ]] && { MWLOG="$d/memwatch-$(date +%Y%m%d-%H%M%S).log"; break; }
+  done
+fi
 if (( DETACH )); then
   "${cmd[@]}"
   [[ "${WARMUP:-1}" == 0 ]] || { ( trap '' HUP; warmup ) > /dev/null 2>&1 & disown; }
+  [[ -z "$MWLOG" ]] || { ( trap '' HUP; MEMWATCH_QUIET=1 memwatch "$MWLOG" ) > /dev/null 2>&1 & disown; echo "a memory watch logs the load to $MWLOG (MEMWATCH=0 skips it)"; }
   echo "started $NAME in the background; follow: docker logs -f $NAME ; ready when ./verify.sh passes; stop: ./stop.sh"
   [[ "${WARMUP:-1}" == 0 ]] || echo "a warm-up helper sends two requests once it answers (WARMUP=0 skips it)"
 else
   [[ "${WARMUP:-1}" == 0 ]] || { warmup & }
+  [[ -z "$MWLOG" ]] || { memwatch "$MWLOG" & }
   echo "starting $NAME in this terminal; it answers when the log says 'Application startup complete'."
   echo "from another terminal: ./verify.sh checks it, ./stop.sh (or Ctrl-C here) stops it."
   echo "while the weights load (about 10 minutes), vLLM acts on Ctrl-C only when the load ends; ./stop.sh stops it at once."

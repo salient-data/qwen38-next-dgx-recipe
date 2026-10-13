@@ -87,6 +87,10 @@ git clone https://github.com/salient-data/qwen38-next-dgx-recipe && cd qwen38-ne
 When the server answers, `launch.sh` sends it two short warm-up requests so the first real answer is not slowed by
 kernel compilation (`warm-up done` in the foreground; `WARMUP=0` skips it).
 
+While it loads, a memory watch samples every 10 s and warns (`memwatch: ...`) when another process grows by 2 GiB or
+more, since anything that grows during the load takes memory from the KV cache; it ends with a summary, keeps a log in
+`~/.cache/qwen38-next-dgx-recipe/logs/` (which `diagnose.sh` includes), and `MEMWATCH=0` skips it.
+
 In the foreground, Ctrl-C during the weight load takes effect only when the load ends; `./recipe/stop.sh` (from another
 terminal) stops and removes the container at once.
 

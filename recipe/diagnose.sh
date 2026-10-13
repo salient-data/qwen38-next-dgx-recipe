@@ -96,6 +96,10 @@ main_report() {
   ( cd "$HERE" && MODEL_DIR="$MDIR" timeout 120 ./preflight.sh 2>&1 )
   sec "launch.sh --print"
   ( cd "$HERE" && MODEL_DIR="$MDIR" timeout 30 ./launch.sh --print 2>&1 ) | head -5
+  sec "Memory watch of the last start (launch.sh)"
+  mw="$(ls -t "$CDIR"/logs/memwatch-*.log "${TMPDIR:-/tmp}"/qwen38-next-dgx-recipe-logs/memwatch-*.log 2>/dev/null | head -1)"
+  if [[ -n "$mw" ]]; then echo "$(basename "$mw"):"; { grep -v '^[0-9]*s MemAvailable' "$mw" | head -20; grep '^[0-9]*s MemAvailable' "$mw" | awk 'NR % 6 == 1' | tail -12; } | cut -c1-300
+  else echo "none (launch.sh writes one per start unless MEMWATCH=0)"; fi
   sec "Kernel messages about memory and the GPU (this boot, if readable)"
   k="$({ journalctl -k -b --no-pager 2>/dev/null || dmesg 2>/dev/null; } | grep -iE 'oom|out of memory|killed process|NVRM|Xid' | tail -15)"
   echo "${k:-none found (or not readable without sudo)}"
