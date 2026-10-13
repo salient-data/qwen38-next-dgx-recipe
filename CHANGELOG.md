@@ -6,6 +6,12 @@ numbers, not promises.
 
 ## Recipe tooling (between builds)
 
+- 2026-10-13: once the server answers, `launch.sh` sends it two short requests (one greedy, one sampled), so the few
+  Triton kernels that compile on the first request do so before your first request, not during it. It prints
+  `warm-up done` in the foreground; `WARMUP=0` skips it. `preflight.sh` now shows the hf CLI version in every
+  environment (it printed `?` where `hf version` prints `version: X`), and `docker build` no longer warns
+  `InvalidDefaultArgInFrom` (found by testing the recipe as a first-time user: fresh clone, empty cache, full
+  download, no-cache build).
 - `launch.sh` runs the server in your terminal by default, so you watch it load and Ctrl-C stops it;
   `--detach` keeps the old background behaviour (scripts that expect `launch.sh` to return must now add `--detach`).
   Thanks to whpthomas on the NVIDIA forum.

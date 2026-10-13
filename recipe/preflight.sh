@@ -34,7 +34,7 @@ HUB="${HF_HUB_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}/hub}"
 src="default"; [[ -n "${HF_HOME:-}" ]] && src="HF_HOME"; [[ -n "${HF_HUB_CACHE:-}" ]] && src="HF_HUB_CACHE"
 MDIR="${MODEL_DIR:-$HUB/models--${MODEL_ID//\//--}}"
 if command -v hf > /dev/null; then
-  hv="$(hf version 2>/dev/null | sed -n 's/^version=//p')"
+  hv="$(hf version 2>/dev/null | sed -n 's/^ *version *[=:] *//p' | head -1)"   # 'version=X' or, in some environments, 'version: X'
   if hf cache verify --help > /dev/null 2>&1 && hf cache prune --help > /dev/null 2>&1; then ok "hf CLI ${hv:-?}"
   else warn "hf CLI ${hv:-?} has no 'hf cache verify' or 'hf cache prune'; upgrade: pip install -U huggingface_hub"; fi
 else warn "hf CLI not found (download.sh needs it): pip install -U huggingface_hub"; fi

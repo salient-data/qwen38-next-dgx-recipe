@@ -6,6 +6,7 @@
 # Before starting it checks that every checkpoint file resolves inside the folder the container mounts, that about
 # 98 GiB of memory is free (MIN_FREE_GIB) and that no container of the same name exists, and lists other GPU
 # containers and processes; FORCE=1 skips the memory check and the list.
+# Once the server answers, a helper sends two short requests so first-request kernels compile now (WARMUP=0 skips).
 # Binds 127.0.0.1 by default. BIND=0.0.0.0 exposes it on every interface WITHOUT authentication unless you
 # also set VLLM_API_KEY (passed to the container as an environment variable, which vLLM reads).
 set -euo pipefail
@@ -75,10 +76,32 @@ if [[ "$ra" =~ ^[0-9]+$ && "$ra" -lt 8192 ]]; then
   echo "note: read-ahead on the checkpoint's disk is ${ra} KB; 8192 takes a cold load from about 12 to about 10 minutes (see docs/troubleshooting.md)." >&2
 fi
 mkdir -p "$CACHE_DIR"
+# Warm-up: the first requests compile a few Triton kernels (the speculative-decoding rejection sampler, logits
+# statistics), which the first user would see as a slow answer. A helper waits for the server, sends one greedy and
+# one sampled request, and exits; it also exits if the container goes away (Ctrl-C stops it with the server).
+# WARMUP=0 skips it.
+warmup() {
+  local host="$BIND" auth=() i temp
+  [[ "$host" == 0.0.0.0 ]] && host=127.0.0.1
+  [[ -n "${VLLM_API_KEY:-}" ]] && auth=(-H "Authorization: Bearer $VLLM_API_KEY")
+  for i in $(seq 1 60); do docker container inspect "$NAME" > /dev/null 2>&1 && break; sleep 1; done
+  until curl -fsS --max-time 3 "${auth[@]}" "http://$host:$PORT/v1/models" > /dev/null 2>&1; do
+    docker container inspect "$NAME" > /dev/null 2>&1 || return 0; sleep 5
+  done
+  for temp in 0 1.0; do
+    curl -fsS --max-time 300 "${auth[@]}" "http://$host:$PORT/v1/chat/completions" -H 'content-type: application/json' \
+      -d "{\"model\":\"$SERVED_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"Count from 1 to 20.\"}],\"max_tokens\":64,\"temperature\":$temp}" \
+      > /dev/null 2>&1 || { echo "warm-up: request failed; the server may still be starting (./verify.sh checks it)" >&2; return 0; }
+  done
+  echo "warm-up done: the server is ready and its first-request kernels are compiled" >&2
+}
 if (( DETACH )); then
   "${cmd[@]}"
+  [[ "${WARMUP:-1}" == 0 ]] || { ( trap '' HUP; warmup ) > /dev/null 2>&1 & disown; }
   echo "started $NAME in the background; follow: docker logs -f $NAME ; ready when ./verify.sh passes; stop: ./stop.sh"
+  [[ "${WARMUP:-1}" == 0 ]] || echo "a warm-up helper sends two requests once it answers (WARMUP=0 skips it)"
 else
+  [[ "${WARMUP:-1}" == 0 ]] || { warmup & }
   echo "starting $NAME in this terminal; it answers when the log says 'Application startup complete'."
   echo "from another terminal: ./verify.sh checks it, ./stop.sh (or Ctrl-C here) stops it."
   exec "${cmd[@]}"
