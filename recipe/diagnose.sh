@@ -33,19 +33,20 @@ sec() { printf '\n## %s\n' "$*"; }
 T() { timeout 20 "$@"; }   # a hung Docker daemon or driver must not hang the report
 
 # Redaction. Values are escaped for sed; empty or trivial values are skipped (HOME=/ must not rewrite every /).
-esc() { printf '%s' "$1" | sed 's/[][\.*^$#/+?(){}|]/\\&/g'; }
+escb() { printf '%s' "$1" | sed 's/[][\.*^$#/]/\\&/g'; }          # for basic regexes (sed without -E)
+esc() { printf '%s' "$1" | sed 's/[][\.*^$#/+?(){}|]/\\&/g'; }     # for extended regexes (sed -E)
 RED=(-e 's#\(hf_\)[A-Za-z0-9]\{20,\}#\1<redacted>#g' -e 's#\(Bearer \)[^ "]*#\1<redacted>#g'
-     -e 's#\(--api-key[ =]\)[^ ]*#\1<redacted>#g' -e "s#\('api_key': \)[^,}]*#\1<redacted>#g"
+     -e 's#\(--api-key[ =]\)[^ ]*#\1<redacted>#g' -e "s#\(api_key['\"]\{0,1\}[:=] *\)\[[^]]*\]#\1<redacted>#Ig" -e "s#\(api_key['\"]\{0,1\}[:=] *\)[^ }]*#\1<redacted>#Ig"
      -e 's#\([A-Z_]*\(KEY\|TOKEN\|SECRET\|PASSWORD\)=\)[^ ]*#\1<redacted>#g')
 homes=("$HOME"); users=("$(id -un)")
 if [[ -n "${SUDO_USER:-}" ]]; then users+=("$SUDO_USER"); homes+=("$(getent passwd "$SUDO_USER" | cut -d: -f6)"); fi
-for d in "${homes[@]}"; do [[ ${#d} -gt 1 && "$d" == /* ]] && RED+=(-e "s#$(esc "$d")#~#g"); done
+for d in "${homes[@]}"; do [[ ${#d} -gt 1 && "$d" == /* ]] && RED+=(-e "s#$(escb "$d")\([/:]\|\$\)#~\1#g"); done
 for u in "${users[@]}"; do   # only in paths (/name/ or /name:), and never names that are also common words here
   case "$u" in ''|root|nvidia|docker|vllm|dgx|spark|ubuntu|admin|user|cuda) continue ;; esac
-  RED+=(-e "s#/$(esc "$u")\([/:]\|\$\)#/<user>\1#g")
+  RED+=(-e "s#/$(escb "$u")\([/:]\|\$\)#/<user>\1#g")
 done
 h="$(hostname 2>/dev/null || true)"; HOSTRED=(-e 's/^//')
-[[ ${#h} -ge 4 ]] && HOSTRED=(-e "s#(^|[^[:alnum:]._-])$(esc "$h")([^[:alnum:]._-]|\$)#\1<host>\2#g")
+[[ ${#h} -ge 4 ]] && HOSTRED=(-e "s#(^|[^[:alnum:]._-])$(esc "$h")([^[:alnum:]_-]|\$)#\1<host>\2#g")
 redact() { sed "${RED[@]}" | sed -E "${HOSTRED[@]}"; }
 
 DOCKER_OK=1; DOCKER_ERR=""
@@ -101,31 +102,36 @@ main_report() {
 }
 # The server log: key lines from the boot, then the last lines. Progress bars, blank lines and access-log lines
 # (client addresses) are dropped; every line is cut to 400 characters.
-clean() { tr '\r' '\n' | sed 's/\x1b\[[0-9;]*m//g' | grep -vE '(it/s|s/it)\]|\| *[0-9]+/[0-9]+ \[|^(\(APIServer[^)]*\) )?INFO: +[0-9.:a-f]+:[0-9]+ - "| Route: /' | sed '/^[[:space:]]*$/d' | cut -c1-400; }
+clean() { tr '\r' '\n' | sed 's/\x1b\[[0-9;]*m//g' | grep -vE '(it/s|s/it)\]|\| *[0-9]+/[0-9]+ \[|^(\(APIServer[^)]*\) )?INFO: +\[?[0-9.:a-f]+\]?:[0-9]+ - "| Route: /' | sed '/^[[:space:]]*$/d' | cut -c1-400; }
 KEY='version [0-9]|non-default args|Available RAM|Resolved Engram|Model loading took|Available KV cache memory|Free memory on device|GPU KV cache size|CUDA graph pool memory|Graph capturing finished|estimated maximum model length|out of memory'
-log_report() {
+LOGSRC=""; LOGHEAD=""; LOGTAIL=""
+if [[ -n "$LOG" ]]; then
+  LOGSRC="file $(basename "$LOG")"; LOGHEAD="$(head -3000 "$LOG" | clean)"; LOGTAIL="$(tail -400 "$LOG" | clean | tail -40)"
+elif (( DOCKER_OK )) && T docker container inspect "$NAME" > /dev/null 2>&1; then
+  LOGSRC="docker logs $NAME"; LOGHEAD="$(timeout 60 docker logs "$NAME" 2>&1 | head -3000 | clean)"
+  LOGTAIL="$(timeout 60 docker logs --tail 400 "$NAME" 2>&1 | clean | tail -40)"
+fi
+log_head() {
   sec "Server log"
-  local head tail
-  if [[ -n "$LOG" ]]; then
-    echo "from file $(basename "$LOG")"; head="$(head -3000 "$LOG" | clean)"; tail="$(tail -400 "$LOG" | clean | tail -40)"
-  elif (( DOCKER_OK )) && T docker container inspect "$NAME" > /dev/null 2>&1; then
-    echo "from docker logs $NAME"; head="$(timeout 60 docker logs "$NAME" 2>&1 | head -3000 | clean)"
-    tail="$(timeout 60 docker logs --tail 400 "$NAME" 2>&1 | clean | tail -40)"
-  else
+  if [[ -z "$LOGSRC" ]]; then
     echo "no log: the container $NAME does not exist (a foreground start removes it when it exits)."
     echo "to capture one, from the repo root: WARMUP=0 ./recipe/launch.sh 2>&1 | tee -i launch.log; ./recipe/diagnose.sh launch.log"
     return
   fi
-  echo "key lines:"; grep -E "$KEY" <<< "$head" | head -25
-  echo; echo "last 40 lines:"; echo "$tail"
+  echo "from $LOGSRC"; echo "key lines:"; grep -E "$KEY" <<< "$LOGHEAD" | head -25
 }
 
 OUTDIR="$PWD"; [[ -w "$OUTDIR" ]] || OUTDIR="${TMPDIR:-/tmp}"
 OUT="$OUTDIR/qfn-diagnose-$(date +%Y%m%d-%H%M%S).txt"
-body="$({ main_report; log_report; } 2>&1 | redact)"
-if (( ${#body} > MAX_BYTES )); then
-  body="${body:0:$((MAX_BYTES - 200))}"$'\n'"[report truncated to fit a forum post; the full log is the file you passed, or docker logs $NAME]"
-  echo "note: the report was longer than a forum post allows and was truncated" >&2
+# The log's last lines hold the error, so when the report is too long for a forum post, its tail keeps its end.
+body="$({ main_report; log_head; } 2>&1 | redact)"
+if [[ -n "$LOGSRC" ]]; then
+  tl="$(redact <<< "$LOGTAIL")"; budget=$(( MAX_BYTES - ${#body} - 300 ))
+  if (( ${#tl} > budget )); then
+    tl="[earlier lines cut to fit a forum post]"$'\n'"$(tail -c "$(( budget > 0 ? budget : 0 ))" <<< "$tl" | sed 1d)"
+    echo "note: the log's last lines were shortened to fit a forum post" >&2
+  fi
+  body+=$'\n\n'"last lines:"$'\n'"$tl"
 fi
 printf '```\n%s\n```\n' "$body" > "$OUT"
 cat "$OUT"
@@ -134,22 +140,22 @@ echo "saved: $OUT ($(wc -c < "$OUT") bytes). Read it, then paste all of it into 
 
 # --issue: nothing is sent without a "y" typed at a terminal.
 file_issue() {
-  local repo="${QFN_ISSUE_REPO:-salient-data/qwen38-next-dgx-recipe}" ans line title tmp url
+  local repo="${QFN_ISSUE_REPO:-salient-data/qwen38-next-dgx-recipe}" ans line title url
   [[ -t 0 ]] || { echo "--issue asks before it sends anything; run it in a terminal" >&2; return 2; }
   read -r -p "File this report as a PUBLIC issue on github.com/$repo (anyone can read it)? [y/N] " ans
   [[ "$ans" =~ ^[Yy]([Ee][Ss])?$ ]] || { echo "not sent; the report is in $OUT" >&2; return 0; }
   read -r -p "One line describing the problem (Enter to skip): " line
   title="Help: ${line:-diagnose report ($RECIPE_BUILD)}"; title="${title:0:120}"
   if command -v gh > /dev/null && gh auth status -h github.com > /dev/null 2>&1; then
-    tmp="$(mktemp)"
-    { echo "Filed with \`./recipe/diagnose.sh --issue\`."; [[ -n "$line" ]] && printf '\n%s\n' "$line"; echo; cat "$OUT"; } > "$tmp"
-    if gh issue create --repo "$repo" --title "$title" --body-file "$tmp"; then rm -f "$tmp"; return 0; fi
-    rm -f "$tmp"; echo "gh could not create the issue (see above); use the link below instead" >&2
+    TMPF="$(mktemp)"; trap 'rm -f "$TMPF"' EXIT INT TERM
+    { echo "Filed with \`./recipe/diagnose.sh --issue\`."; [[ -n "$line" ]] && printf '\n%s\n' "$line"; echo; cat "$OUT"; } > "$TMPF"
+    if gh issue create --repo "$repo" --title "$title" --body-file "$TMPF"; then rm -f "$TMPF"; return 0; fi
+    rm -f "$TMPF"; echo "gh could not create the issue (see above); use the link below instead" >&2
   fi
   url="https://github.com/$repo/issues/new"
   command -v python3 > /dev/null && url+="?$(python3 -c 'import sys,urllib.parse as u; print(u.urlencode({"title":sys.argv[1],"body":sys.argv[2]}))' "$title" "Paste the contents of $(basename "$OUT") here.")"
   echo "open this link while signed in to GitHub, paste the contents of $OUT into the box, and submit:" >&2
   echo "$url"
 }
-(( ISSUE )) && file_issue
+if (( ISSUE )); then file_issue; exit $?; fi
 exit 0

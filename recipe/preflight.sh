@@ -26,8 +26,8 @@ gpu="$(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/n
 TESTED_DOCKER="29.6.2"; TESTED_BUILDX="0.35.0"; TESTED_CTK="1.20.1"
 UPGRADE="update DGX OS: sudo apt update && sudo apt full-upgrade, then reboot"
 older() { [[ -n "$1" && "$1" != "$2" && "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" == "$1" ]]; }
-ver() {   # ver NAME FOUND TESTED FIX
-  if [[ -z "$2" ]]; then warn "$1 version unknown; tested with $3"
+ver() {   # ver NAME FOUND TESTED FIX-IF-OLDER [FIX-IF-MISSING]
+  if [[ -z "$2" ]]; then warn "$1 not found or version unknown (tested with $3)${5:+: $5}"
   elif older "$2" "$3"; then warn "$1 $2 is older than the $3 we tested: $4"
   elif [[ "$2" == "$3" ]]; then ok "$1 $2 (tested)"
   else ok "$1 $2 (newer than the $3 we tested)"; fi
@@ -41,16 +41,20 @@ have_cuda="$(nvidia-smi 2>/dev/null | grep -o 'CUDA Version: [0-9.]*' | awk '{pr
 if [[ -z "$have_cuda" ]]; then warn "could not read the driver's CUDA version (nvidia-smi); the image needs CUDA $need_cuda or newer"
 elif older "$have_cuda" "$need_cuda"; then bad "the driver supports CUDA $have_cuda; the image needs CUDA $need_cuda or newer: $UPGRADE"
 else ok "driver supports CUDA $have_cuda (the image needs $need_cuda or newer)"; fi
-[[ -r /etc/dgx-release ]] && ok "DGX OS $(sed -n 's/^DGX_OTA_VERSION="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/dgx-release | tail -1)"
+if [[ -r /etc/dgx-release ]]; then
+  dgxv="$(sed -n 's/^DGX_OTA_VERSION="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/dgx-release | tail -1)"
+  [[ -n "$dgxv" ]] || dgxv="$(sed -n 's/^DGX_SWBUILD_VERSION="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/dgx-release | tail -1)"
+  ok "DGX OS ${dgxv:-unknown}"
+fi
 grep -q "Open Kernel Module" /proc/driver/nvidia/version 2>/dev/null && ok "open kernel module driver" || warn "not the open kernel module driver (tested with it)"
-if ! command -v docker > /dev/null; then bad "docker not installed (DGX OS ships it): $UPGRADE"
+if ! command -v docker > /dev/null; then bad "docker not installed (DGX OS ships it): sudo apt install docker-ce docker-buildx-plugin nvidia-container-toolkit"
 elif ! derr="$(timeout 20 docker info 2>&1 > /dev/null)"; then
   if grep -qi "permission denied" <<< "$derr"; then bad "you cannot use Docker as $(id -un): sudo usermod -aG docker $(id -un), then log out and back in"
   else bad "Docker is not answering: $(tail -1 <<< "$derr")"; fi
 else
   ver docker "$(docker version --format '{{.Server.Version}}' 2>/dev/null)" "$TESTED_DOCKER" "$UPGRADE"
-  ver "docker buildx" "$(docker buildx version 2>/dev/null | awk '{print $2}' | sed 's/^v//')" "$TESTED_BUILDX" "$UPGRADE (build.sh needs BuildKit)"
-  ver "NVIDIA Container Toolkit" "$(nvidia-ctk --version 2>/dev/null | sed -n 's/.*version \([0-9.]*\).*/\1/p' | head -1)" "$TESTED_CTK" "$UPGRADE"
+  ver "docker buildx" "$(docker buildx version 2>/dev/null | awk '{print $2}' | sed 's/^v//')" "$TESTED_BUILDX" "$UPGRADE (build.sh needs BuildKit)" "sudo apt install docker-buildx-plugin (build.sh needs it)"
+  ver "NVIDIA Container Toolkit" "$(nvidia-ctk --version 2>/dev/null | sed -n 's/.*version \([0-9.]*\).*/\1/p' | head -1)" "$TESTED_CTK" "$UPGRADE" "sudo apt install nvidia-container-toolkit"
   docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia && ok "docker with the nvidia runtime" || bad "docker with the NVIDIA container runtime is required: sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker"
 fi
 missing_tools=""; for t in curl python3 git; do command -v "$t" > /dev/null || missing_tools+="$t "; done
