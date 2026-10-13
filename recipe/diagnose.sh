@@ -100,7 +100,7 @@ main_report() {
   mw="$(ls -t "$CDIR"/logs/memwatch-*.log "${TMPDIR:-/tmp}"/qwen38-next-dgx-recipe-logs/memwatch-*.log 2>/dev/null | head -1)"
   if [[ -n "$mw" ]]; then
     echo "$(basename "$mw"):"
-    { sed -n '/^summary/,$p' "$mw"; grep -v -e '^[0-9]*s MemAvailable' -e '^summary' -e '^largest growth' -e '^  [+-]' -e '^  none' "$mw" | head -14
+    { sed -n '/^summary/,$p' "$mw"; grep -v -e '^[0-9]*s MemAvailable' -e '^summary' -e '^largest growth' -e '^ *[+-][0-9.]* GiB  ' -e '^  none' "$mw" | head -14
       echo "samples (every minute):"; grep '^[0-9]*s MemAvailable' "$mw" | awk 'NR % 6 == 1' | tail -15; } | cut -c1-300
   else echo "none (launch.sh writes one per start unless MEMWATCH=0)"; fi
   sec "Kernel messages about memory and the GPU (this boot, if readable)"

@@ -230,7 +230,7 @@ memwatch() {
     echo "summary after $(( $(date +%s) - t0 ))s ($why): lowest MemAvailable $(gib "$minavail") GiB; server peak $(gib "$peak") GiB"
     echo "largest growth outside the container (1 GiB or more):"
     for k in "${!grown[@]}"; do (( ${grown[$k]} >= 1048576 )) && echo "${grown[$k]} ${k#*:} ${pname[$k]}$([[ $k == gpu:* ]] && echo ' (GPU)')"; done |
-      sort -rn | head -5 | awk '{printf "  %+6.1f GiB  %s (pid %s)\n", $1/1048576, substr($0, index($0, $3)), $2} END {if (!NR) print "  none"}'
+      sort -rn | head -5 | awk '{s = $3; for (i = 4; i <= NF; i++) s = s " " $i; printf "  %+6.1f GiB  %s (pid %s)\n", $1/1048576, s, $2} END {if (!NR) print "  none"}'
   } >> "$lf"
   [[ "${MEMWATCH_QUIET:-0}" == 1 ]] || echo "memwatch: done ($why); log $lf" >&2
 }
