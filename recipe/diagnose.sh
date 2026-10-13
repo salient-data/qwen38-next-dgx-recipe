@@ -36,7 +36,7 @@ T() { timeout 20 "$@"; }   # a hung Docker daemon or driver must not hang the re
 escb() { printf '%s' "$1" | sed 's/[][\.*^$#/]/\\&/g'; }          # for basic regexes (sed without -E)
 esc() { printf '%s' "$1" | sed 's/[][\.*^$#/+?(){}|]/\\&/g'; }     # for extended regexes (sed -E)
 RED=(-e 's#\(hf_\)[A-Za-z0-9]\{20,\}#\1<redacted>#g' -e 's#\(Bearer \)[^ "]*#\1<redacted>#g'
-     -e 's#\(--api-key[ =]\)[^ ]*#\1<redacted>#g' -e "s#\(api_key['\"]\{0,1\}[:=] *\)\[[^]]*\]#\1<redacted>#Ig" -e "s#\(api_key['\"]\{0,1\}[:=] *\)[^ }]*#\1<redacted>#Ig"
+     -e 's#\(--api-key[ =]\)[^ ]*#\1<redacted>#g' -e "s#\(api_key['\"]\{0,1\}[:=] *\)\[[^]]*\]#\1<redacted>#Ig" -e "s#\(api_key['\"]\{0,1\}[:=] *\)[^ ,}]*#\1<redacted>#Ig"
      -e 's#\([A-Z_]*\(KEY\|TOKEN\|SECRET\|PASSWORD\)=\)[^ ]*#\1<redacted>#g')
 homes=("$HOME"); users=("$(id -un)")
 if [[ -n "${SUDO_USER:-}" ]]; then users+=("$SUDO_USER"); homes+=("$(getent passwd "$SUDO_USER" | cut -d: -f6)"); fi
