@@ -261,3 +261,9 @@ tonyd2wild's ([repository](https://github.com/tonyd2wild/Qwen3.8-Flash-Next-NVFP
 pinned commit. The GSM8K subset is drawn from OpenAI's [grade-school-math](https://github.com/openai/grade-school-math)
 (MIT). Model weights are not distributed here; they are under the licences on the
 [model card](https://huggingface.co/nvidia/Qwen3.8-Flash-Next-NVFP4).
+
+**The prebuilt image (prod path).** It is vLLM's published image (Apache-2.0) plus the patches above, built on
+NVIDIA's CUDA container. It therefore contains NVIDIA software under the NVIDIA Deep Learning Container License,
+which is inside the image at `/NGC-DL-CONTAINER-LICENSE` and which you accept by using the image. This software
+contains source code provided by NVIDIA Corporation. This recipe and its image are not affiliated with or endorsed
+by NVIDIA. The dev path builds the same image from the pinned vLLM base yourself.
