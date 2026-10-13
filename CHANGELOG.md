@@ -6,6 +6,14 @@ numbers, not promises.
 
 ## Recipe tooling (between builds)
 
+- `launch.sh -- ARGS` changes or adds vLLM arguments for one run without editing `serve.args`, e.g.
+  `./recipe/launch.sh -- --max-model-len 131072`: a flag already in `serve.args` gets the new value in place, any other
+  is added, and each change is printed with a note that the run is no longer the measured configuration. In the
+  foreground, `launch.sh` now says that Ctrl-C during the weight load takes effect only when the load ends, and that
+  `./recipe/stop.sh` stops it at once. Troubleshooting covers the KV-cache-too-small error.
+- `launch.sh` watches memory during the load: every 10 s it samples free memory, the server's own memory and every
+  process outside the server container (CPU and GPU memory), warns when one grows by 2 GiB or more or holds GPU memory,
+  and logs a summary to `CACHE_DIR/logs/memwatch-<time>.log`, which `diagnose.sh` includes. `MEMWATCH=0` skips it.
 - `recipe/diagnose.sh` gathers what we need to help with a problem into one report to paste into a forum post or an
   issue: host, DGX OS, driver, Docker, memory, the checkpoint's disk and file system, `preflight.sh`, the exact launch
   command, kernel out-of-memory messages and, from the container or a saved log (`WARMUP=0 ./recipe/launch.sh 2>&1 |
