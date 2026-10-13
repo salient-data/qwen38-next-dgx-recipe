@@ -4,6 +4,8 @@
 #                             (during the weight load vLLM acts on Ctrl-C only once the load ends; ./stop.sh is at once)
 #   ./launch.sh --detach, -d  run it in the background (production); follow with docker logs -f, stop with ./stop.sh
 #   ./launch.sh --print       print the docker command, run nothing (combine with --detach to see that form)
+#   ./launch.sh --prod        run the published image (PROD_IMAGE in pins.env, fetched by ./pull.sh) instead of the one
+#                             ./build.sh makes; the same serve.args and serve.env either way. ./qfn up does pull + this.
 #   ./launch.sh [-d] -- ARGS  change or add vLLM arguments for this run, e.g. -- --max-model-len 131072: a flag already
 #                             in serve.args gets the new value, any other is added; the run is then not the measured setup
 # Before starting it checks that every checkpoint file resolves inside the folder the container mounts, that about
@@ -16,18 +18,25 @@
 # also set VLLM_API_KEY (passed to the container as an environment variable, which vLLM reads).
 set -euo pipefail
 cd "$(dirname "$0")"; source ./pins.env
-DETACH=0; PRINT=0
+DETACH=0; PRINT=0; PROD=0
 EXTRA=()
 while (( $# )); do
   case "$1" in
     --detach|-d) DETACH=1 ;;
     --print) PRINT=1 ;;
+    --prod) PROD=1 ;;
     -h|--help) awk 'NR > 1 && !/^#/ {exit} NR > 1' "$(basename "$0")"; exit 0 ;;
     --) shift; EXTRA=("$@"); break ;;
     *) echo "unknown argument: $1 (see ./launch.sh --help; vLLM arguments go after --)" >&2; exit 2 ;;
   esac
   shift
 done
+# The prod path runs the image our nightly measured, pinned by its registry digest (QFN-155); the dev path, the default,
+# runs the image ./build.sh makes from the same pinned base and patches.
+if (( PROD )); then
+  [[ -n "${PROD_IMAGE:-}" ]] || { echo "this build has no published image (no PROD_IMAGE in pins.env): build it with ./build.sh and run ./launch.sh without --prod" >&2; exit 1; }
+  IMAGE="$PROD_IMAGE"
+fi
 # The Hugging Face cache: HF_HUB_CACHE if set (hf download writes there), else $HF_HOME/hub, else ~/.cache/huggingface/hub.
 HUB="${HF_HUB_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}/hub}"
 MODEL_DIR="${MODEL_DIR:-$HUB/models--${MODEL_ID//\//--}}"
@@ -101,7 +110,13 @@ if command -v python3 > /dev/null && [[ -f "$MODEL_DIR/snapshots/$MODEL_REVISION
   done < <(python3 -c 'import json,sys; print("\n".join(sorted(set(json.load(open(sys.argv[1]))["weight_map"].values()))))' "$MODEL_DIR/snapshots/$MODEL_REVISION/model.safetensors.index.json")
 fi
 (( bad == 0 )) || { echo "re-run ./download.sh for missing files; keep snapshots/ and blobs/ under one folder and set MODEL_DIR to it (docs/troubleshooting.md)" >&2; exit 1; }
-docker image inspect "$IMAGE" > /dev/null 2>&1 || { echo "image $IMAGE not built; run ./build.sh" >&2; exit 1; }
+if (( PROD )); then
+  docker image inspect "$IMAGE" > /dev/null 2>&1 || { echo "image $IMAGE not pulled; run ./pull.sh" >&2; exit 1; }
+  [[ -z "${PROD_IMAGE_ID:-}" || "$(docker image inspect -f '{{.Id}}' "$IMAGE")" == "$PROD_IMAGE_ID" ]] \
+    || { echo "the image under $IMAGE is not $PROD_IMAGE_ID, the build this recipe measured; run ./pull.sh again" >&2; exit 1; }
+else
+  docker image inspect "$IMAGE" > /dev/null 2>&1 || { echo "image $IMAGE not built; run ./build.sh" >&2; exit 1; }
+fi
 if docker container inspect "$NAME" > /dev/null 2>&1; then
   echo "a container named $NAME already exists ($(docker inspect -f '{{.State.Status}}' "$NAME")); ./stop.sh removes it" >&2; exit 1
 fi
@@ -143,21 +158,24 @@ fi
 # Warm-up: the first requests compile a few Triton kernels (the speculative-decoding rejection sampler, logits
 # statistics), which the first user would see as a slow answer. A helper waits for the server, sends one greedy and
 # one sampled request, and exits; it also exits if the container stops (Ctrl-C stops it with the server).
-# WARMUP=0 skips it.
+# WARMUP=0 skips it. Its state (waiting, done, failed, stopped) is kept in CACHE_DIR for ./qfn status.
+wstate() { { printf '%s %s\n' "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$CACHE_DIR/warmup-$NAME.state"; } 2> /dev/null || true; }
 warmup() {
   local host="$BIND" auth=() i temp
+  wstate waiting
   [[ "$host" == 0.0.0.0 ]] && host=127.0.0.1
   [[ -n "${VLLM_API_KEY:-}" ]] && auth=(-H "Authorization: Bearer $VLLM_API_KEY")
   running() { [[ "$(docker container inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" == true ]]; }
   for i in $(seq 1 60); do running && break; sleep 1; done
   until curl -fsS --max-time 3 "${auth[@]}" "http://$host:$PORT/v1/models" > /dev/null 2>&1; do
-    running || return 0; sleep 5   # stopped, removed or crashed during load: nothing to warm
+    running || { wstate stopped; return 0; }; sleep 5   # stopped, removed or crashed during load: nothing to warm
   done
   for temp in 0 1.0; do
     curl -fsS --max-time 300 "${auth[@]}" "http://$host:$PORT/v1/chat/completions" -H 'content-type: application/json' \
       -d "{\"model\":\"$SERVED_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"Count from 1 to 20.\"}],\"max_tokens\":64,\"temperature\":$temp}" \
-      > /dev/null 2>&1 || { running && echo "warm-up: a request failed; ./verify.sh checks the server" >&2; return 0; }
+      > /dev/null 2>&1 || { if running; then wstate failed; echo "warm-up: a request failed; ./verify.sh checks the server" >&2; else wstate stopped; fi; return 0; }
   done
+  wstate done
   echo "warm-up done: the server is ready and its first-request kernels are compiled" >&2
 }
 # Memory watch: on a Spark, CPU and GPU share one memory pool, and vLLM sizes its KV cache from what is left after the

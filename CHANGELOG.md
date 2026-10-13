@@ -6,6 +6,13 @@ numbers, not promises.
 
 ## Recipe tooling (between builds)
 
+- Two ways to run a build. **prod**: `./recipe/qfn up` pulls the exact image our nightly gates measured (pinned by
+  registry digest in `recipe/pins.env` as `PROD_IMAGE`, signed with `recipe/cosign.pub`), starts it in the
+  background, waits, warms it up and verifies it; `./recipe/launch.sh --prod` and `./recipe/pull.sh` are the steps.
+  **dev**: `./recipe/qfn dev` builds the same image from the pinned base and `recipe/patches` and runs it in your
+  terminal. `./recipe/qfn` is one entry point for every script (`preflight`, `download`, `pull`, `build`, `start`,
+  `verify`, `stop`, `status`, `upgrade`); the scripts still run on their own. A build gets a published image from
+  its next release on; until then `qfn up` says so and `qfn dev` is the way to run it.
 - `preflight.sh` no longer fails Docker hosts that run `--gpus` through the NVIDIA Container Toolkit's hook without
   an `nvidia` runtime in `/etc/docker/daemon.json` (as on at least one user's Spark); it accepts the hook, the runtime or a CDI spec.
   Thanks to rtamax on the NVIDIA forum.

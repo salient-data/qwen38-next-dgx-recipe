@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# qfn: one entry point for this recipe. Each command runs one of the scripts next to it; you can run those directly.
+#
+# prod: the exact image our nightly gates measured, pulled from the registry by digest, run in the background
+#   ./qfn up                 pull (signature checked if cosign is installed), start, wait until it answers, warm up, verify
+#
+# dev: build the image yourself from the pinned vLLM nightly plus recipe/patches and watch it load (full transparency)
+#   ./qfn dev                build, then start in this terminal (Ctrl-C stops and removes it)
+#
+# steps
+#   ./qfn preflight          check this host (preflight.sh)
+#   ./qfn download           download and verify the checkpoint (download.sh)
+#   ./qfn pull               pull the published image (pull.sh)
+#   ./qfn build              build the image locally (build.sh)
+#   ./qfn start [-d] [--prod] [--print]   start the server (launch.sh)
+#   ./qfn verify             two known-answer checks (verify.sh)
+#   ./qfn stop               stop and remove the container (stop.sh)
+#   ./qfn status             container, image (prod or dev), build, endpoint and warm-up state
+#   ./qfn upgrade            git checkout main && git pull, then pull the new image (or rebuild it if none is published)
+#   ./qfn help
+#
+# Both paths use the same serve.args and serve.env; only the image's origin differs. Environment knobs are those of
+# launch.sh (BIND, PORT, NAME, MODEL_DIR, CACHE_DIR, WARMUP, FORCE, VLLM_API_KEY, MIN_FREE_GIB).
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"; cd "$here"; source ./pins.env
+BIND="${BIND:-127.0.0.1}"; PORT="${PORT:-8000}"; NAME="${NAME:-qwen38-flash-next}"
+CACHE_DIR="${CACHE_DIR:-$HOME/.cache/qwen38-next-dgx-recipe}"
+host="$BIND"; [[ "$host" == 0.0.0.0 ]] && host=127.0.0.1
+url="http://$host:$PORT"
+auth=(); [[ -n "${VLLM_API_KEY:-}" ]] && auth=(-H "Authorization: Bearer $VLLM_API_KEY")
+usage() { awk 'NR > 1 && !/^#/ {exit} NR > 1' "$here/qfn"; }
+answers() { curl -fsS --max-time 3 "${auth[@]}" "$url/v1/models" > /dev/null 2>&1; }
+running() { [[ "$(docker container inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" == true ]]; }
+
+wait_ready() {   # until the server answers, the container stops, or READY_TIMEOUT_S (default 2400) passes
+  local t0=$SECONDS limit="${READY_TIMEOUT_S:-2400}" last=-1
+  echo "waiting for $url (a cold first boot takes 5-13 minutes; docker logs -f $NAME shows the load)"
+  until answers; do
+    if ! running; then
+      echo "the container stopped before it answered; its last log lines:" >&2
+      docker logs --tail 20 "$NAME" 2>&1 | sed 's/^/  /' >&2 || true
+      return 1
+    fi
+    (( SECONDS - t0 >= limit )) && { echo "no answer after $limit s; docker logs -f $NAME" >&2; return 1; }
+    (( (SECONDS - t0) / 60 != last )) && { last=$(( (SECONDS - t0) / 60 )); echo "  ... ${last} min"; }
+    sleep 10
+  done
+  echo "answering after $(( SECONDS - t0 )) s"
+}
+wait_warm() {    # the warm-up helper writes its state into CACHE_DIR; wait up to 5 minutes for it
+  [[ "${WARMUP:-1}" == 0 ]] && return 0
+  local f="$CACHE_DIR/warmup-$NAME.state" i s
+  for i in $(seq 1 60); do
+    s="$(cut -d' ' -f1 "$f" 2>/dev/null || true)"
+    case "$s" in done) echo "warm-up done"; return 0 ;; failed|stopped) echo "warm-up $s" >&2; return 0 ;; esac
+    sleep 5
+  done
+  echo "warm-up still running after 5 minutes; continuing" >&2
+}
+
+status() {
+  echo "recipe     build $RECIPE_BUILD (vLLM ${VLLM_COMMIT:0:8}), model $MODEL_ID @ ${MODEL_REVISION:0:8}"
+  if [[ -n "${PROD_IMAGE:-}" ]]; then echo "published  $PROD_IMAGE"; else echo "published  none for this build (dev path only)"; fi
+  local id ref kind state
+  state="$(docker container inspect -f '{{.State.Status}}' "$NAME" 2>/dev/null || true)"
+  if [[ -z "$state" ]]; then
+    echo "container  $NAME: not present"
+  else
+    ref="$(docker container inspect -f '{{.Config.Image}}' "$NAME")"; id="$(docker container inspect -f '{{.Image}}' "$NAME")"
+    if [[ -n "${PROD_IMAGE_ID:-}" && "$id" == "$PROD_IMAGE_ID" ]]; then kind="prod (the measured build)"
+    elif [[ "$id" == "$(docker image inspect -f '{{.Id}}' "$IMAGE" 2>/dev/null || true)" ]]; then kind="dev (your local build of $IMAGE)"
+    else kind="neither this build's published image nor your local build: another build is running"; fi
+    echo "container  $NAME: $state, image $ref"
+    echo "image      $id, $kind"
+  fi
+  local code; code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "${auth[@]}" "$url/health" 2>/dev/null || true)"
+  if [[ "$code" == 200 ]]; then echo "endpoint   $url: healthy"; else echo "endpoint   $url: not answering (${code:-no reply})"; fi
+  local w; w="$(cat "$CACHE_DIR/warmup-$NAME.state" 2>/dev/null || true)"
+  echo "warm-up    ${w:-no record (WARMUP=0, or not started by this launcher)}"
+  echo "cache      $CACHE_DIR"
+}
+
+upgrade() {
+  local root; root="$(git -C "$here" rev-parse --show-toplevel 2>/dev/null)" || { echo "not a git checkout; re-clone the recipe repository" >&2; exit 1; }
+  git -C "$root" diff --quiet && git -C "$root" diff --cached --quiet \
+    || { echo "you have local changes in $root; commit or stash them first (git status)" >&2; exit 1; }
+  local old="$RECIPE_BUILD"
+  git -C "$root" checkout main && git -C "$root" pull --ff-only
+  # Re-read the pins of the new build in a fresh shell, then fetch its image.
+  local new; new="$(bash -c 'source ./pins.env; echo "$RECIPE_BUILD"')"
+  echo "build $old -> $new"
+  if [[ -n "$(bash -c 'source ./pins.env; echo "${PROD_IMAGE:-}"')" ]]; then ./pull.sh; else ./build.sh; fi
+  running && echo "the running server is still the old build; restart it: ./qfn stop && ./qfn up   (or ./qfn dev)"
+  return 0
+}
+
+cmd="${1:-help}"; [[ $# -gt 0 ]] && shift
+case "$cmd" in
+  up)
+    [[ -n "${PROD_IMAGE:-}" ]] || { echo "this build has no published image yet; use the dev path: ./qfn dev" >&2; exit 1; }
+    ./pull.sh
+    ./launch.sh --prod --detach "$@"
+    wait_ready
+    wait_warm
+    ./verify.sh ;;
+  dev)       ./build.sh; exec ./launch.sh "$@" ;;
+  preflight) exec ./preflight.sh "$@" ;;
+  download)  exec ./download.sh "$@" ;;
+  pull)      exec ./pull.sh "$@" ;;
+  build)     exec ./build.sh "$@" ;;
+  start)     exec ./launch.sh "$@" ;;
+  verify)    exec ./verify.sh "$@" ;;
+  stop)      exec ./stop.sh "$@" ;;
+  status)    status ;;
+  upgrade)   upgrade ;;
+  help|-h|--help) usage ;;
+  *) echo "unknown command: $cmd" >&2; usage >&2; exit 2 ;;
+esac
