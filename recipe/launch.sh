@@ -16,7 +16,7 @@ for a in "$@"; do
   case "$a" in
     --detach|-d) DETACH=1 ;;
     --print) PRINT=1 ;;
-    -h|--help) sed -n '2,10p' "$(basename "$0")"; exit 0 ;;
+    -h|--help) awk 'NR > 1 && !/^#/ {exit} NR > 1' "$(basename "$0")"; exit 0 ;;
     *) echo "unknown argument: $a (see ./launch.sh --help)" >&2; exit 2 ;;
   esac
 done
@@ -78,20 +78,21 @@ fi
 mkdir -p "$CACHE_DIR"
 # Warm-up: the first requests compile a few Triton kernels (the speculative-decoding rejection sampler, logits
 # statistics), which the first user would see as a slow answer. A helper waits for the server, sends one greedy and
-# one sampled request, and exits; it also exits if the container goes away (Ctrl-C stops it with the server).
+# one sampled request, and exits; it also exits if the container stops (Ctrl-C stops it with the server).
 # WARMUP=0 skips it.
 warmup() {
   local host="$BIND" auth=() i temp
   [[ "$host" == 0.0.0.0 ]] && host=127.0.0.1
   [[ -n "${VLLM_API_KEY:-}" ]] && auth=(-H "Authorization: Bearer $VLLM_API_KEY")
-  for i in $(seq 1 60); do docker container inspect "$NAME" > /dev/null 2>&1 && break; sleep 1; done
+  running() { [[ "$(docker container inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" == true ]]; }
+  for i in $(seq 1 60); do running && break; sleep 1; done
   until curl -fsS --max-time 3 "${auth[@]}" "http://$host:$PORT/v1/models" > /dev/null 2>&1; do
-    docker container inspect "$NAME" > /dev/null 2>&1 || return 0; sleep 5
+    running || return 0; sleep 5   # stopped, removed or crashed during load: nothing to warm
   done
   for temp in 0 1.0; do
     curl -fsS --max-time 300 "${auth[@]}" "http://$host:$PORT/v1/chat/completions" -H 'content-type: application/json' \
       -d "{\"model\":\"$SERVED_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"Count from 1 to 20.\"}],\"max_tokens\":64,\"temperature\":$temp}" \
-      > /dev/null 2>&1 || { echo "warm-up: request failed; the server may still be starting (./verify.sh checks it)" >&2; return 0; }
+      > /dev/null 2>&1 || { running && echo "warm-up: a request failed; ./verify.sh checks the server" >&2; return 0; }
   done
   echo "warm-up done: the server is ready and its first-request kernels are compiled" >&2
 }

@@ -84,6 +84,9 @@ git clone https://github.com/salient-data/qwen38-next-dgx-recipe && cd qwen38-ne
 ./recipe/stop.sh                 # stop and remove the container
 ```
 
+When the server answers, `launch.sh` sends it two short warm-up requests so the first real answer is not slowed by
+kernel compilation (`warm-up done` in the foreground; `WARMUP=0` skips it).
+
 Once you trust it, `./recipe/launch.sh --detach` runs the same command in the background (follow it with
 `docker logs -f qwen38-flash-next`). On a cold disk most of the load is reading weights; raising the disk's
 read-ahead from the distro default of 128 KB to 8192 KB takes a cold load from about 12 minutes to about 10

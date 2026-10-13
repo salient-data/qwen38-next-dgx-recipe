@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Rerun tonyd2wild's published harness against the served recipe, exactly as our results were measured:
 # three runs at 1 stream, then one at 6 streams. Fetched at a pinned commit and verified by sha256 (not vendored).
-# The server must be idle (nothing else sending requests). Writes bench/third-party/.../results/categories_recipe_*.json
+# The server must be idle (nothing else sending requests; wait for launch.sh's warm-up, a few seconds after it answers). Writes bench/third-party/.../results/categories_recipe_*.json
 # The harness sends no API key: run it against a server started without VLLM_API_KEY (the default, bound to localhost).
 set -euo pipefail
 cd "$(dirname "$0")"
