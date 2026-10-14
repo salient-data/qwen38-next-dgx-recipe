@@ -7,7 +7,7 @@ numbers, not promises.
 ## Recipe tooling (between builds)
 
 - `preflight.sh` no longer fails Docker hosts that run `--gpus` through the NVIDIA Container Toolkit's hook without
-  an `nvidia` runtime in `/etc/docker/daemon.json` (a stock install); it accepts the hook, the runtime or a CDI spec.
+  an `nvidia` runtime in `/etc/docker/daemon.json` (as on at least one user's Spark); it accepts the hook, the runtime or a CDI spec.
   Thanks to rtamax on the NVIDIA forum.
 - `launch.sh -- ARGS` changes or adds vLLM arguments for one run without editing `serve.args`, e.g.
   `./recipe/launch.sh -- --max-model-len 131072`: a flag already in `serve.args` gets the new value in place, any other
