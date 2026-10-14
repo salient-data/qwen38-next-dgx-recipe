@@ -55,7 +55,13 @@ else
   ver docker "$(docker version --format '{{.Server.Version}}' 2>/dev/null)" "$TESTED_DOCKER" "$UPGRADE"
   ver "docker buildx" "$(docker buildx version 2>/dev/null | awk '{print $2}' | sed 's/^v//')" "$TESTED_BUILDX" "$UPGRADE (build.sh needs BuildKit)" "sudo apt install docker-buildx-plugin (build.sh needs it)"
   ver "NVIDIA Container Toolkit" "$(nvidia-ctk --version 2>/dev/null | sed -n 's/.*version \([0-9.]*\).*/\1/p' | head -1)" "$TESTED_CTK" "$UPGRADE" "sudo apt install nvidia-container-toolkit"
-  docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia && ok "docker with the nvidia runtime" || bad "docker with the NVIDIA container runtime is required: sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker"
+  # launch.sh uses docker run --gpus all, which needs the toolkit's hook (or a CDI spec); registering an "nvidia"
+  # runtime in /etc/docker/daemon.json is not required for it.
+  if command -v nvidia-container-runtime-hook > /dev/null || command -v nvidia-container-toolkit > /dev/null; then
+    ok "docker --gpus support (NVIDIA Container Toolkit hook)"
+  elif docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then ok "docker with the nvidia runtime"
+  elif ls /etc/cdi/nvidia*.yaml /etc/cdi/nvidia*.json /var/run/cdi/nvidia*.yaml /var/run/cdi/nvidia*.json > /dev/null 2>&1; then ok "docker --gpus support (CDI spec for NVIDIA GPUs)"
+  else bad "docker cannot pass the GPU to a container (no NVIDIA Container Toolkit hook, runtime or CDI spec): sudo apt install nvidia-container-toolkit && sudo systemctl restart docker"; fi
 fi
 missing_tools=""; for t in curl python3 git; do command -v "$t" > /dev/null || missing_tools+="$t "; done
 [[ -z "$missing_tools" ]] && ok "curl, python3 and git present" || warn "missing ${missing_tools}(verify.sh, the warm-up and upgrades use them): sudo apt install ${missing_tools% }"
