@@ -97,15 +97,18 @@ upgrade() {
 }
 
 cmd="${1:-help}"; [[ $# -gt 0 ]] && shift
+# --print (before any --) only shows the docker command: no pull, build, wait or verify.
+printing() { local a; for a in "$@"; do [[ "$a" == -- ]] && return 1; [[ "$a" == --print ]] && return 0; done; return 1; }
 case "$cmd" in
   up)
     [[ -n "${PROD_IMAGE:-}" ]] || { echo "this build has no published image yet; use the dev path: ./qfn dev" >&2; exit 1; }
+    printing "$@" && exec ./launch.sh --prod --detach "$@"
     ./pull.sh
     ./launch.sh --prod --detach "$@"
     wait_ready
     wait_warm
     ./verify.sh ;;
-  dev)       ./build.sh; exec ./launch.sh "$@" ;;
+  dev)       printing "$@" || ./build.sh; exec ./launch.sh "$@" ;;
   preflight) exec ./preflight.sh "$@" ;;
   download)  exec ./download.sh "$@" ;;
   pull)      exec ./pull.sh "$@" ;;
