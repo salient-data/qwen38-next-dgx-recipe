@@ -13,7 +13,7 @@
 #   ./qfn download           download and verify the checkpoint (download.sh)
 #   ./qfn pull               pull the published image (pull.sh)
 #   ./qfn build              build the image locally (build.sh)
-#   ./qfn start [-d] [--prod] [--print]   start the server (launch.sh)
+#   ./qfn start [-d] [--prod] [--print] [-- ARGS]   start the server (launch.sh; vLLM arguments after --)
 #   ./qfn verify             two known-answer checks (verify.sh)
 #   ./qfn stop               stop and remove the container (stop.sh)
 #   ./qfn status             container, image (prod or dev), build, endpoint and warm-up state
@@ -21,7 +21,7 @@
 #   ./qfn help
 #
 # Both paths use the same serve.args and serve.env and the same serving code (AST-identical, checked at publish time). Environment knobs are those of
-# launch.sh (BIND, PORT, NAME, MODEL_DIR, CACHE_DIR, WARMUP, FORCE, VLLM_API_KEY, MIN_FREE_GIB).
+# launch.sh (BIND, PORT, NAME, MODEL_DIR, CACHE_DIR, WARMUP, MEMWATCH, FORCE, VLLM_API_KEY, MIN_FREE_GIB).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"; cd "$here"; source ./pins.env; source ./prod-image.sh
 BIND="${BIND:-127.0.0.1}"; PORT="${PORT:-8000}"; NAME="${NAME:-qwen38-flash-next}"
