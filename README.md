@@ -10,7 +10,7 @@ says where its raw data is.
 ## Status and disclaimer
 
 <!-- generated:verified -->
-Last verified: **2026-10-08**, build `2026-10-08-81198e97`.
+Last verified: **2026-10-14**, build `2026-10-14-77154ca6`.
 <!-- /generated:verified -->
 
 - **Community recipe.** Not affiliated with or endorsed by NVIDIA, Qwen or the vLLM project.
@@ -23,20 +23,21 @@ Last verified: **2026-10-08**, build `2026-10-08-81198e97`.
 ## Results
 
 <!-- generated:results -->
-Build `2026-10-08-81198e97` (vLLM `81198e97` + 6 patches), measured 2026-10-08:
+Build `2026-10-14-77154ca6` (vLLM `77154ca6` + 14 patches), measured 2026-10-14:
 
 | metric (tonyd2wild `bench_categories.py` @ 6ad1c8f, unchanged) | this recipe | published by tonyd2wild (their Spark) |
 |---|---|---|
-| 1 stream, median decode tok/s over 40 prompts | **67.5** (runs 65.2 / 67.5 / 67.5) | 43.9 |
-| 1 stream, prose median tok/s | **38.5** (runs 38.0 / 38.5 / 38.6) | 29.0 |
-| 6 streams, median batch aggregate tok/s | **90.7** (1 run) | 68.8 |
-| harness auto-score (format and length), 1 / 6 streams | 0.91 / 0.83 | 0.88 / 0.827 |
+| 1 stream, median decode tok/s over 40 prompts | **71.3** (runs 69.2 / 71.3 / 71.5) | 43.9 |
+| 1 stream, prose median tok/s | **42.6** (runs 41.4 / 42.6 / 42.6) | 29.0 |
+| 6 streams, median batch aggregate tok/s | **84.4** (1 run) | 68.8 |
+| harness auto-score (format and length), 1 / 6 streams | 0.824 / 0.842 | 0.88 / 0.827 |
 | GSM8K, fixed 100-problem subset (temperature 0.6, top-p 0.95, thinking on, max 3072 tokens) | **99/100** (Wilson 95% 94.55-99.82%) | - |
 | fixed checks: arithmetic, ten tasks, ~131K needle, prefix-cache canary | 12/12, 9/10, pass, pass | - |
+| measured again on 2026-10-15 on the serving build (same image), 1 stream median / prose / 6 streams aggregate | 71.8 (runs 69.8 / 71.8 / 71.9) / 42.8 / 84.0 | - |
 
 For scale: tonyd2wild's own recipe, which we reran on our Spark on 2026-10-03 with the same harness, measured 42.6 / 28.4 / 64.2 tok/s on the three speed rows. Caveats: to load checkpoint fc694b54 we added an FP8_PB_WO alias to their stack and built its image from source; one run; the 1-stream figure pools three partial runs; prefix caching off. Its raw data is not in this repo.
 
-Raw data, identity and quality: [`results/2026-10-08-81198e97/`](results/2026-10-08-81198e97/).
+Raw data, identity and quality: [`results/2026-10-14-77154ca6/`](results/2026-10-14-77154ca6/).
 <!-- /generated:results -->
 
 How to read this table:
@@ -81,7 +82,9 @@ differs. `./recipe/qfn help` lists every command, and each one runs a script you
   the key in `recipe/cosign.pub`. `./recipe/qfn up` pulls it (checking the signature if
   [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) is installed), starts it in the
   background, waits until it answers, warms it up and runs the known-answer checks. `./recipe/qfn status` shows
-  what is running.
+  what is running. The image also carries an SPDX SBOM (package-level), signed with the same key and timestamped by
+  Sigstore's timestamp authority but not entered in the public transparency log (the image signature is). Check it with
+  `cosign verify-attestation --key recipe/cosign.pub --insecure-ignore-tlog --use-signed-timestamps --type spdxjson <PROD_IMAGE>`.
 - **dev: rebuild the same serving code yourself and watch it load.** Everything that goes into it is in this
   repository: the pinned vLLM nightly (by digest) and `recipe/patches`. `./recipe/qfn dev` builds it and starts it
   in your terminal; the quick start below is the same thing step by step. Use this to read, check or change what
@@ -170,10 +173,10 @@ directory and do not carry over to another build.
 <!-- generated:pins -->
 | Pinned | Value |
 |---|---|
-| Base image | `vllm/vllm-openai@sha256:a83c7f976879e0c6101f734fd5b84a098d12d6d8d12baa41e31eb323b84b0802` (nightly of vLLM `81198e97ba7eee2a22540caaa756b7fdddcb4d93`) |
-| vLLM | `0.31.1rc1.dev88+g81198e97b`, torch `2.13.0+cu130`, FlashInfer `0.7.0.post1` |
+| Base image | `vllm/vllm-openai@sha256:a7deff2c216def98c193352aca50fb03a2ee29231355b3033dc3789009f6d23e` (nightly of vLLM `77154ca6116ae34cbfe314beef1016bde9b63989`) |
+| vLLM | `0.32.0rc1.dev100+g77154ca61`, torch `2.13.0+cu130`, FlashInfer `0.7.0.post1` |
 | Model | `nvidia/Qwen3.8-Flash-Next-NVFP4` @ `fc694b54fb0174e0913e6adf86691ef85a4ead47` |
-| Patches | 6, listed in [`recipe/patches/PROVENANCE.md`](recipe/patches/PROVENANCE.md) |
+| Patches | 14, listed in [`recipe/patches/PROVENANCE.md`](recipe/patches/PROVENANCE.md) |
 | Tested driver | 580.178.04 (open kernel module), kernel `7.0.0-1019-nvidia`, Docker 29.6.2 |
 | Launch | [`recipe/serve.args`](recipe/serve.args), [`recipe/serve.env`](recipe/serve.env), `./recipe/launch.sh --print` |
 <!-- /generated:pins -->
@@ -204,7 +207,15 @@ need build arguments (see vLLM's Docker build docs). The simpler path is the new
 - `0003-vllm59973-nvfp4-draft-lm-head.patch`: Quantizes the MTP drafter's lm_head (the 65,536 reduced-vocabulary rows) to NVFP4. ([vllm#59973](https://github.com/vllm-project/vllm/pull/59973), open)
 - `0004-vllm58681-restore-sm12x-alignment-behavior-for.patch`: Restore SM12x alignment behavior for grouped GEMMs ([vllm#58681](https://github.com/vllm-project/vllm/pull/58681), open)
 - `0005-vllm58737-fuse-the-mamba-align-block-table.patch`: Fuse the mamba align block-table gather into one Triton kernel, 7 kernels -> 1, 6x speedup on all shapes for this kernel ([vllm#58737](https://github.com/vllm-project/vllm/pull/58737), open)
-- `0006-vllm59528-keep-the-glm-5-3-kpool-tail.patch`: Keep the GLM-5.3 kpool tail and Qwen4 QSA ring out of the null block ([vllm#59528](https://github.com/vllm-project/vllm/pull/59528), open)
+- `0006-vllm59260-warm-up-top-k-top-p-and-greedy.patch`: Warm up top-k/top-p and greedy rejection kernels for speculative decoding ([vllm#59260](https://github.com/vllm-project/vllm/pull/59260), merged)
+- `0007-quiet-boot.patch`: Stops the load-time warning for dtype casts that are exact (the checkpoint's 37 BF16 tensors loaded into FP32 parameters) and keeps it for casts that can change a value; registers the PLE gather environment variables so vLLM does not warn that they are unknown.
+- `0008-mtp-shard-filter.patch`: Lets the MTP drafter's load skip checkpoint shards that hold none of its tensors (3 of 11 shards read instead of all), as vLLM's Qwen3.5 and Qwen3-Next drafters already do.
+- `0009-vllm54912-widen-the-qsa-raw-key-ring.patch`: Widen the QSA raw-key ring instead of asserting divisibility ([vllm#54912](https://github.com/vllm-project/vllm/pull/54912), open)
+- `0010-vllm60068-confidence-stop-for-autoregressive-drafting.patch`: Confidence stop for autoregressive drafting ([vllm#60068](https://github.com/vllm-project/vllm/pull/60068), open)
+- `0011-skinny-gemm-rows.patch`: Plans the SM121 skinny BF16 GEMM for every row count up to its maximum, not only 1, 2, 4, 8 and 16, so a 5- or 7-row speculative verify no longer falls back to a slower generic kernel (QWEN38_SKINNY_FILL=0 turns it off).
+- `0012-vllm58863-recoverssm-for-qwen-gdn-and.patch`: RecoverSSM for Qwen GDN and the PLE short conv ([vllm#58863](https://github.com/vllm-project/vllm/pull/58863), open)
+- `0013-vllm59740-context-aware-sparse-lm-head.patch`: Context Aware Sparse LM Head ([vllm#59740](https://github.com/vllm-project/vllm/pull/59740), open)
+- `0014-moe-batched-load.patch`: Reads the routed experts' weights from the checkpoint in large parallel preadv calls into fresh tensors, in the same order and with the same bytes, instead of copying each expert out of the memory map a page at a time; a cold boot's weight load drops from about 450-540 s to about 120 s with identical served text (QWEN38_BATCHED_LOAD=0 turns it off). The design follows TensorFold's loader (merged large reads).
 <!-- /generated:patches -->
 
 Authors, upstream state and the exact commits ported are in

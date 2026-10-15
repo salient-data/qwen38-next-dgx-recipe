@@ -64,6 +64,15 @@ numbers, not promises.
   same cache.
 
 <!-- generated:entries -->
+## 2026-10-14-77154ca6
+
+- Base: vLLM `77154ca6116ae34cbfe314beef1016bde9b63989` (`vllm/vllm-openai@sha256:a7deff2c216def98c193352aca50fb03a2ee29231355b3033dc3789009f6d23e`).
+- Patches: 0001-vllm58815-ple-host-file-gather, 0002-fp8-dense-and-draft-vocab, 0003-vllm59973-nvfp4-draft-lm-head, 0004-vllm58681-restore-sm12x-alignment-behavior-for, 0005-vllm58737-fuse-the-mamba-align-block-table, 0006-vllm59260-warm-up-top-k-top-p-and-greedy, 0007-quiet-boot, 0008-mtp-shard-filter, 0009-vllm54912-widen-the-qsa-raw-key-ring, 0010-vllm60068-confidence-stop-for-autoregressive-drafting, 0011-skinny-gemm-rows, 0012-vllm58863-recoverssm-for-qwen-gdn-and, 0013-vllm59740-context-aware-sparse-lm-head, 0014-moe-batched-load.
+- Harness: 71.3 tok/s median at 1 stream, 84.4 aggregate at 6; GSM8K subset 99/100.
+- Measured again on 2026-10-15 after serving a day: 71.8 tok/s at 1 stream, 84.0 aggregate at 6.
+- Results: `results/2026-10-14-77154ca6/`.
+- Tag: `build-2026-10-14-77154ca6`.
+
 ## 2026-10-08-81198e97
 
 - Base: vLLM `81198e97ba7eee2a22540caaa756b7fdddcb4d93` (`vllm/vllm-openai@sha256:a83c7f976879e0c6101f734fd5b84a098d12d6d8d12baa41e31eb323b84b0802`).

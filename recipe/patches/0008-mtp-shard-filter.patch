@@ -1,0 +1,22 @@
+Patch 0008-mtp-shard-filter.patch for vLLM, base commit 77154ca6116ae34cbfe314beef1016bde9b63989 (vllm/vllm-openai:nightly-77154ca6116ae34cbfe314beef1016bde9b63989).
+What: Lets the MTP drafter's load skip checkpoint shards that hold none of its tensors (3 of 11 shards read instead of all), as vLLM's Qwen3.5 and Qwen3-Next drafters already do.
+Upstream: no vLLM PR. written for this recipe.
+This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
+
+diff --git a/vllm/models/qwen4_exp/nvidia/mtp.py b/vllm/models/qwen4_exp/nvidia/mtp.py
+index 1e2f767..3b684ff 100644
+--- a/vllm/models/qwen4_exp/nvidia/mtp.py
++++ b/vllm/models/qwen4_exp/nvidia/mtp.py
+@@ -605,6 +605,12 @@ class Qwen4ExpMTP(nn.Module, SupportsHCSP, SupportsPP, Qwen4ExpMixtureOfExperts)
+             full.mul_(scale)
+         return full
+ 
++    def is_unused_checkpoint_weight(self, name: str) -> bool:
++        # The drafter loads only MTP, embedding and head tensors. Without this the
++        # default loader walks every shard of the target checkpoint (about 300K
++        # tensors for about 3K used); with it, shards holding none are skipped.
++        return _remap_mtp_weight_name(name) is None
++
+     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
+         def remap_weight_names():
+             for name, weight in weights:

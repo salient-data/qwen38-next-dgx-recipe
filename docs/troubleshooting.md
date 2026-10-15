@@ -4,6 +4,7 @@
 |---|---|---|
 | `qfn up` or `launch.sh --prod`: "this build has no published image" | This build was released without a prebuilt image (`PROD_IMAGE` is not in `recipe/pins.env`) | Use the dev path: `./recipe/qfn dev` (or `build.sh`, then `launch.sh`) |
 | `pull.sh`: "signature check FAILED" | The image at that digest is not signed by the key in `recipe/cosign.pub`, or the checkout's `cosign.pub` was changed | Do not run it. `git status recipe/cosign.pub` should be clean; report it on the forum thread. The dev path rebuilds the same serving code from source |
+| `cosign verify-attestation` on the image: "not enough verified log entries from transparency log: 0 < 1" | The SBOM attestation is signed and timestamped but not entered in the public transparency log; only the image signature is | Add `--insecure-ignore-tlog --use-signed-timestamps`, with `--key recipe/cosign.pub` (README, prod path) |
 | `pull.sh`: "cosign is not installed" | The signature is not checked without cosign | Install cosign to check it, or use the dev path; the digest pin still guarantees the bytes match what was published |
 | `launch.sh --prod`: "not pulled" or "not the build this recipe measured" | The image was not pulled, or something else is under that name | `./recipe/pull.sh` |
 | `build.sh`: `manifest unknown` on the base image | Docker Hub pruned the nightly tag | Use the newest build in the CHANGELOG, or the source-build fallback in the README |

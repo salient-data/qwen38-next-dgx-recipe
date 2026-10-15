@@ -1,13 +1,13 @@
-Patch 0003-vllm59973-nvfp4-draft-lm-head.patch for vLLM, base commit 81198e97ba7eee2a22540caaa756b7fdddcb4d93 (vllm/vllm-openai:nightly-81198e97ba7eee2a22540caaa756b7fdddcb4d93).
+Patch 0003-vllm59973-nvfp4-draft-lm-head.patch for vLLM, base commit 77154ca6116ae34cbfe314beef1016bde9b63989 (vllm/vllm-openai:nightly-77154ca6116ae34cbfe314beef1016bde9b63989).
 What: Quantizes the MTP drafter's lm_head (the 65,536 reduced-vocabulary rows) to NVFP4.
 Upstream: https://github.com/vllm-project/vllm/pull/59973 by @stecasta (open), ported at head e037067e; adds the reduced-vocabulary draft-rows hook.
 This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
 
 diff --git a/vllm/config/speculative.py b/vllm/config/speculative.py
-index cd42206..8377207 100644
+index b916d7d..cb9573f 100644
 --- a/vllm/config/speculative.py
 +++ b/vllm/config/speculative.py
-@@ -455,6 +455,12 @@ class SpeculativeConfig:
+@@ -454,6 +454,12 @@ class SpeculativeConfig:
      speculative methods. This is an experimental option for measuring the
      acceptance-rate impact of reusing that block. It does not disable the
      speculative drafter itself."""
@@ -20,7 +20,7 @@ index cd42206..8377207 100644
      use_local_argmax_reduction: bool = False
      """Use vocab-parallel local argmax instead of all-gathering full logits
      for draft token generation. Reduces communication from O(vocab_size) to
-@@ -1817,6 +1823,20 @@ class SpeculativeConfig:
+@@ -1823,6 +1829,20 @@ class SpeculativeConfig:
                  "n_predict parameter."
              )
  
@@ -42,10 +42,10 @@ index cd42206..8377207 100644
              raise ValueError(
                  "Expected num_speculative_tokens to be greater "
 diff --git a/vllm/config/vllm.py b/vllm/config/vllm.py
-index 8fc89f1..579af2b 100644
+index 39015d4..440219c 100644
 --- a/vllm/config/vllm.py
 +++ b/vllm/config/vllm.py
-@@ -3193,6 +3193,8 @@ class VllmConfig:
+@@ -2994,6 +2994,8 @@ class VllmConfig:
                  unsupported.append("dspark speculative decoding")
              if self.speculative_config.enable_adaptive_verification:
                  unsupported.append("adaptive draft verification")
@@ -246,10 +246,10 @@ index 0000000..281df77
 +        ):
 +            getattr(module, name).copy_(tensor)
 diff --git a/vllm/model_executor/layers/vocab_parallel_embedding.py b/vllm/model_executor/layers/vocab_parallel_embedding.py
-index be20c41..ae5a8c3 100644
+index 92e65c8..574aed3 100644
 --- a/vllm/model_executor/layers/vocab_parallel_embedding.py
 +++ b/vllm/model_executor/layers/vocab_parallel_embedding.py
-@@ -606,6 +606,7 @@ class ParallelLMHead(VocabParallelEmbedding):
+@@ -607,6 +607,7 @@ class ParallelLMHead(VocabParallelEmbedding):
          prefix: str = "",
          *,
          disable_tp: bool = False,
@@ -257,7 +257,7 @@ index be20c41..ae5a8c3 100644
      ):
          self.has_bias = bias
          super().__init__(
-@@ -617,6 +618,7 @@ class ParallelLMHead(VocabParallelEmbedding):
+@@ -618,6 +619,7 @@ class ParallelLMHead(VocabParallelEmbedding):
              quant_config,
              prefix,
              disable_tp=disable_tp,
@@ -266,10 +266,10 @@ index be20c41..ae5a8c3 100644
          self.quant_config = quant_config
          if bias:
 diff --git a/vllm/models/qwen4_exp/nvidia/mtp.py b/vllm/models/qwen4_exp/nvidia/mtp.py
-index 5e7e694..fec3423 100644
+index 2ff4709..1e2f767 100644
 --- a/vllm/models/qwen4_exp/nvidia/mtp.py
 +++ b/vllm/models/qwen4_exp/nvidia/mtp.py
-@@ -496,6 +496,7 @@ class Qwen4ExpMTP(nn.Module, SupportsPP, Qwen4ExpMixtureOfExperts):
+@@ -536,6 +536,7 @@ class Qwen4ExpMTP(nn.Module, SupportsHCSP, SupportsPP, Qwen4ExpMixtureOfExperts)
  
      def quantize_draft_rows(self, quantization: str) -> None:
          from vllm.logger import init_logger
@@ -277,7 +277,7 @@ index 5e7e694..fec3423 100644
          from vllm.model_executor.layers.quantization.online.lm_head import (
              quantized_lm_head_copy,
          )
-@@ -517,6 +518,10 @@ class Qwen4ExpMTP(nn.Module, SupportsPP, Qwen4ExpMixtureOfExperts):
+@@ -557,6 +558,10 @@ class Qwen4ExpMTP(nn.Module, SupportsHCSP, SupportsPP, Qwen4ExpMixtureOfExperts)
          )
          replace_parameter(rows, "weight", w)
          self._draft_rows_q = quantized_lm_head_copy(rows, quantization)
@@ -289,10 +289,10 @@ index 5e7e694..fec3423 100644
          self._draft_vocab_cache = (k, start, lo, hi, None)
          del rows, w
 diff --git a/vllm/v1/worker/gpu/model_runner.py b/vllm/v1/worker/gpu/model_runner.py
-index 373042a..93b2030 100644
+index 08e70f3..9615667 100644
 --- a/vllm/v1/worker/gpu/model_runner.py
 +++ b/vllm/v1/worker/gpu/model_runner.py
-@@ -32,7 +32,7 @@ import vllm.envs as envs
+@@ -33,7 +33,7 @@ import vllm.envs as envs
  from vllm.compilation.counter import compilation_counter
  from vllm.compilation.cuda_graph import CUDAGraphStat
  from vllm.compilation.wrapper import compile_model_with_stock_torch
@@ -301,7 +301,7 @@ index 373042a..93b2030 100644
  from vllm.config.compilation import CompilationMode, CUDAGraphMode
  from vllm.distributed.aux_output_connector.worker import (
      AuxOutputWorkerConnector,
-@@ -45,6 +45,9 @@ from vllm.model_executor.layers.fused_moe.all2all_utils import get_ep_all2all_ma
+@@ -46,6 +46,9 @@ from vllm.model_executor.layers.fused_moe.all2all_utils import get_ep_all2all_ma
  from vllm.model_executor.layers.mamba.ops.ssu_dispatch import (
      initialize_mamba_ssu_backend,
  )
@@ -309,9 +309,9 @@ index 373042a..93b2030 100644
 +    refresh_quantized_lm_heads,
 +)
  from vllm.model_executor.model_loader import get_model_loader
+ from vllm.model_executor.model_loader.reload.inplace import reload_weights
  from vllm.model_executor.models.interfaces import requires_raw_input_tokens
- from vllm.model_executor.offloader import (
-@@ -554,6 +557,15 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+@@ -565,6 +568,15 @@ class GPUModelRunner(LoRAModelRunnerMixin):
              return None
          return speculator.model
  
@@ -324,9 +324,9 @@ index 373042a..93b2030 100644
 +            with set_current_vllm_config(self.vllm_config):
 +                refresh_quantized_lm_heads(draft_model)
 +
-     def reload_weights(self, *args, **kwargs) -> None:
-         # TODO(Wentao): Use full version instead of import when fully migrated to v2
-         from vllm.v1.worker.gpu_model_runner import GPUModelRunner as GPUModelRunnerV1
+     def reload_weights(
+         self,
+         weights_iterator: Iterable[tuple[str, torch.Tensor]] | None = None,
 diff --git a/vllm/v1/worker/gpu/spec_decode/eagle/utils.py b/vllm/v1/worker/gpu/spec_decode/eagle/utils.py
 index 65289bb..5ca31be 100644
 --- a/vllm/v1/worker/gpu/spec_decode/eagle/utils.py

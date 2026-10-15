@@ -1,0 +1,62 @@
+Patch 0006-vllm59260-warm-up-top-k-top-p-and-greedy.patch for vLLM, base commit 77154ca6116ae34cbfe314beef1016bde9b63989 (vllm/vllm-openai:nightly-77154ca6116ae34cbfe314beef1016bde9b63989).
+What: Warm up top-k/top-p and greedy rejection kernels for speculative decoding
+Upstream: https://github.com/vllm-project/vllm/pull/59260 by @zixi-qi (merged), ported at head 5509dd5f (PR now at d817114f); cherry-picked unchanged (test files dropped).
+This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
+
+diff --git a/vllm/v1/worker/gpu/model_runner.py b/vllm/v1/worker/gpu/model_runner.py
+index 9615667..dafdcca 100644
+--- a/vllm/v1/worker/gpu/model_runner.py
++++ b/vllm/v1/worker/gpu/model_runner.py
+@@ -461,9 +461,11 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+             self.vllm_config, self.req_states, self.is_pooling_model, config_processors
+         )
+         if self.is_last_pp_rank and not self.is_pooling_model:
+-            # V2 bypasses TopKTopPSampler, which registers native warmups.
+-            # ROCm only: on CUDA these warmups add ~2 min to every engine start.
+-            if current_platform.is_rocm():
++            # Speculative verification uses native top-k/top-p masking even
++            # when target-only sampling can use FlashInfer's fused sampler.
++            if current_platform.is_rocm() or (
++                current_platform.is_cuda() and self.speculative_config is not None
++            ):
+                 from vllm.v1.sample.ops.topk_topp_sampler import (
+                     register_top_k_top_p_warmups,
+                 )
+diff --git a/vllm/v1/worker/gpu/warmup.py b/vllm/v1/worker/gpu/warmup.py
+index b81ddf6..5418147 100644
+--- a/vllm/v1/worker/gpu/warmup.py
++++ b/vllm/v1/worker/gpu/warmup.py
+@@ -238,6 +238,12 @@ def warmup_kernels(
+         rejection_sampler.enable_adaptive_verification = False
+     try:
+         _warmup_kernels(model_runner, worker_execute_model, worker_sample_tokens)
++        if rejection_sampler is not None:
++            # Greedy batches skip logits processing, so rejection kernels
++            # also see model-dtype logits instead of FP32.
++            _warmup_kernels(
++                model_runner, worker_execute_model, worker_sample_tokens, greedy=True
++            )
+     finally:
+         model_runner.adaptive_verification = adaptive_verification
+         if adaptive_sampling:
+@@ -249,6 +255,7 @@ def _warmup_kernels(
+     model_runner: GPUModelRunner,
+     worker_execute_model: Callable[[SchedulerOutput], Any],
+     worker_sample_tokens: Callable[[GrammarOutput | None], Any],
++    greedy: bool = False,
+ ) -> None:
+     if model_runner.vllm_config.is_mm_encoder_only:
+         return
+@@ -321,7 +328,11 @@ def _warmup_kernels(
+         pooling_params = PoolingParams(task=pooling_task)
+         pooling_params.verify(model_runner.model_config)
+     else:
+-        sampling_params = SamplingParams.for_sampler_warmup()
++        sampling_params = (
++            SamplingParams(temperature=0)
++            if greedy
++            else SamplingParams.for_sampler_warmup()
++        )
+         pooling_params = None
+ 
+     # Assign distinct block IDs per request per group. 0 null block, start from 1.

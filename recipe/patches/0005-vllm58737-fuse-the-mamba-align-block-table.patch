@@ -1,6 +1,6 @@
-Patch 0005-vllm58737-fuse-the-mamba-align-block-table.patch for vLLM, base commit 81198e97ba7eee2a22540caaa756b7fdddcb4d93 (vllm/vllm-openai:nightly-81198e97ba7eee2a22540caaa756b7fdddcb4d93).
+Patch 0005-vllm58737-fuse-the-mamba-align-block-table.patch for vLLM, base commit 77154ca6116ae34cbfe314beef1016bde9b63989 (vllm/vllm-openai:nightly-77154ca6116ae34cbfe314beef1016bde9b63989).
 What: Fuse the mamba align block-table gather into one Triton kernel, 7 kernels -> 1, 6x speedup on all shapes for this kernel
-Upstream: https://github.com/vllm-project/vllm/pull/58737 by @fululi12 (open), ported at head 88ee2624; cherry-picked unchanged (test files dropped).
+Upstream: https://github.com/vllm-project/vllm/pull/58737 by @fululi12 (open), ported at head 88ee2624 (PR now at e4facc10); cherry-picked unchanged (test files dropped).
 This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
 
 diff --git a/vllm/v1/attention/backends/utils.py b/vllm/v1/attention/backends/utils.py
