@@ -43,8 +43,10 @@ Raw data, identity and quality: [`results/2026-10-14-77154ca6/`](results/2026-10
 How to read this table:
 - The speed rows are a **recipe comparison** with tonyd2wild's published figures, measured on two different Sparks
   on different dates. Our recipe and theirs differ in vLLM build, how the PLE rows are read (per step in the forward
-  pass here, a staged gather in theirs), speculation settings (we draft 4 tokens with one request and 3 with two to
-  six), dense-layer precision (we cast BF16 dense layers to FP8 block-128), draft head (NVFP4 here), KV dtype of the
+  pass here, a staged gather in theirs), speculation settings (with one request we draft up to 6 tokens and stop early when the drafter's top-1
+  probability falls below 0.7; with two to six requests, 3), dense-layer precision (we cast BF16 dense layers to FP8
+  block-128), draft head (a context-aware sparse head here: 32,766 fixed token ids plus 16,384 rows chosen per
+  context, NVFP4), KV dtype of the
   MTP layer (BF16 here) and **prefix caching (on here, off in theirs)**. Prefix
   caching does not change the 1-stream decode metric; it shortens time to first token, which the 6-stream
   aggregate includes (we estimate at most 1-2% of it).
@@ -82,7 +84,7 @@ differs. `./recipe/qfn help` lists every command, and each one runs a script you
   the key in `recipe/cosign.pub`. `./recipe/qfn up` pulls it (checking the signature if
   [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) is installed), starts it in the
   background, waits until it answers, warms it up and runs the known-answer checks. `./recipe/qfn status` shows
-  what is running. The image also carries an SPDX SBOM (package-level), signed with the same key and timestamped by
+  what is running. The image also carries an SPDX SBOM (packages, plus file names without checksums), signed with the same key and timestamped by
   Sigstore's timestamp authority but not entered in the public transparency log (the image signature is). Check it with
   `cosign verify-attestation --key recipe/cosign.pub --insecure-ignore-tlog --use-signed-timestamps --type spdxjson <PROD_IMAGE>`.
 - **dev: rebuild the same serving code yourself and watch it load.** Everything that goes into it is in this
@@ -110,7 +112,7 @@ git clone https://github.com/salient-data/qwen38-next-dgx-recipe && cd qwen38-ne
 ./recipe/download.sh             # hf download at the pinned revision, then verifies file hashes
 ./recipe/build.sh                # pulls the pinned base by digest (~10 GB download, ~25 GB on disk), applies the patches
 ./recipe/launch.sh --print       # shows the exact docker command
-./recipe/launch.sh               # runs it in this terminal so you watch it load (10-12 minutes, below); Ctrl-C stops it
+./recipe/launch.sh               # runs it in this terminal so you watch it load (about 5-6 minutes, below); Ctrl-C stops it
 ./recipe/verify.sh               # from a second terminal: two known-answer requests
 ./recipe/stop.sh                 # stop and remove the container
 ```
@@ -134,10 +136,9 @@ To change a vLLM argument for one run, put it after `--`: `./recipe/launch.sh --
 `serve.args` already has gets the new value, and any other flag is added; `launch.sh` prints each change. Leave
 `serve.args` itself unedited, so `git pull` stays clean, and say what you changed when you report numbers.
 
-On a cold disk most of the load is reading weights; raising the disk's
-read-ahead from the distro default of 128 KB to 8192 KB takes a cold load from about 12 minutes to about 10
-(707 to 606 s on our Spark; `preflight.sh` checks it; see
-[troubleshooting](docs/troubleshooting.md)).
+On a cold disk the weight load is about 120 s of the total. On earlier builds, raising the disk's read-ahead from
+the distro default of 128 KB to 8192 KB shortened a cold load by about 100 s; we have not re-measured it with this
+build's faster loader (`preflight.sh` checks it; see [troubleshooting](docs/troubleshooting.md)).
 
 The server binds `127.0.0.1:8000` and serves an OpenAI-compatible API with the model name `qwen3.8-flash-next`.
 `BIND=0.0.0.0` exposes it on every interface **without authentication** unless you also set `VLLM_API_KEY`
@@ -158,7 +159,7 @@ git checkout main && git pull    # or: git checkout build-<date>-<sha8> for a sp
 ./recipe/download.sh             # downloads only if the model revision changed; verifies the small config and tokenizer files (the hub checks the weights as they download)
 ./recipe/build.sh                # builds the new image; the old one stays until you remove it
 ./recipe/launch.sh --detach      # in the background, so the next line can run (or run launch.sh in its own terminal)
-./recipe/verify.sh               # once it answers, 10-12 minutes later
+./recipe/verify.sh               # once it answers, about 5-6 minutes later
 ```
 
 `./recipe/qfn upgrade` does the `git` step and then fetches the new build's image: it pulls it when one is
@@ -203,9 +204,9 @@ need build arguments (see vLLM's Docker build docs). The simpler path is the new
 
 <!-- generated:patches -->
 - `0001-vllm58815-ple-host-file-gather.patch`: Reads the 51.2 GB PLE n-gram table's rows from the checkpoint's safetensors file each step (pread with a 64-worker pool), so the table is never resident and the model fits in 121 GiB. ([vllm#58815](https://github.com/vllm-project/vllm/pull/58815), open)
-- `0002-fp8-dense-and-draft-vocab.patch`: QWEN38_FP8_DENSE casts the checkpoint's BF16 dense linears (GDN, QSA, shared experts, MTP dense, lm_head) to 128x128 block FP8 at load (197 linears); QWEN4EXP_DRAFT_VOCAB limits MTP drafting to token ids below 65,536; keeps the QSA indexer projection unfused so its rows stay BF16.
-- `0003-vllm59973-nvfp4-draft-lm-head.patch`: Quantizes the MTP drafter's lm_head (the 65,536 reduced-vocabulary rows) to NVFP4. ([vllm#59973](https://github.com/vllm-project/vllm/pull/59973), open)
-- `0004-vllm58681-restore-sm12x-alignment-behavior-for.patch`: Restore SM12x alignment behavior for grouped GEMMs ([vllm#58681](https://github.com/vllm-project/vllm/pull/58681), open)
+- `0002-fp8-dense-and-draft-vocab.patch`: QWEN38_FP8_DENSE casts the checkpoint's BF16 dense linears (GDN, QSA, shared experts, MTP dense, lm_head) to 128x128 block FP8 at load (197 linears); QWEN4EXP_DRAFT_VOCAB limits MTP drafting to token ids below 65,536; keeps the QSA indexer projection unfused so its rows stay BF16. The draft-vocabulary limit is present but not enabled in this build (QWEN4EXP_DRAFT_VOCAB=0); the sparse draft head of 0013 replaces it.
+- `0003-vllm59973-nvfp4-draft-lm-head.patch`: Quantizes the MTP drafter's lm_head (the 65,536 reduced-vocabulary rows) to NVFP4. Present but not enabled in this build (no draft_lm_head_quantization); the sparse draft head of 0013 replaces it. ([vllm#59973](https://github.com/vllm-project/vllm/pull/59973), open)
+- `0004-vllm58681-restore-sm12x-alignment-behavior-for.patch`: Restore SM12x alignment behavior for grouped GEMMs ([vllm#58681](https://github.com/vllm-project/vllm/pull/58681), unavailable on GitHub since 2026-10-13; was open)
 - `0005-vllm58737-fuse-the-mamba-align-block-table.patch`: Fuse the mamba align block-table gather into one Triton kernel, 7 kernels -> 1, 6x speedup on all shapes for this kernel ([vllm#58737](https://github.com/vllm-project/vllm/pull/58737), open)
 - `0006-vllm59260-warm-up-top-k-top-p-and-greedy.patch`: Warm up top-k/top-p and greedy rejection kernels for speculative decoding ([vllm#59260](https://github.com/vllm-project/vllm/pull/59260), merged)
 - `0007-quiet-boot.patch`: Stops the load-time warning for dtype casts that are exact (the checkpoint's 37 BF16 tensors loaded into FP32 parameters) and keeps it for casts that can change a value; registers the PLE gather environment variables so vLLM does not warn that they are unknown.
@@ -238,7 +239,8 @@ See [bench/README.md](bench/README.md): the third-party harness (`bench/run-thir
 - One host. No noise floor across hosts; numbers on your Spark will differ.
 - Not tested here: a single request near the 262,144-token maximum (the longest prompt measured is about 131K),
   vision and video inputs, more than 6 concurrent sequences, thinking-on throughput.
-- The MTP drafter only proposes token ids below 65,536, so non-English text drafts less well and runs slower.
+- The MTP drafter proposes from a reduced set of tokens (32,766 fixed ids plus 16,384 chosen per context), so
+  non-English text may draft less well and run slower; this build has not measured that.
 - The KV pool (about 1.0M tokens) is aggregate capacity across requests, not one request's context.
 
 ## Troubleshooting
@@ -266,7 +268,7 @@ We rebuild every night on vLLM main with the same patch series (and drop a patch
 replaces the one in this repo only if, against the build it would replace and in the same session on our Spark, it
 passes: the server boots with at least 90% of the KV pool; a 12-check endpoint suite; the quality checks above
 (GSM8K at least 98/100, arithmetic 11/12, ten tasks 9/10, needle and canary pass); decode speed over 68 prompts at one
-request at least 0.97x; aggregate throughput at 2 and 4 requests at least 0.95x per workload; and a healthcheck once
+request at least 0.97x; aggregate throughput over distinct prompts at 2 and 6 requests at least 0.95x; and a healthcheck once
 it serves. It must also beat the published harness figures on two nights in a row (the first build here,
 2026-10-08, was published after one night, before that rule existed).
 

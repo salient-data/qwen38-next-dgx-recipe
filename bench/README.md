@@ -13,8 +13,9 @@ requests. Each results directory (`results/<build>/`) holds the raw files, the b
 - Decode speed per prompt = (completion tokens - 1) / (time of last token - time of first token).
 - 1 stream: three runs (tags a, b, c); the figure is the median of the three runs' 40-prompt medians.
 - 6 streams: one run; the figure is the median over its 7 batches of (completion tokens / batch wall time).
-- Before the harness, the same server had run about 30 minutes of other load in the same session (a 12-check
-  endpoint suite, a 68-prompt probe in two modes, and throughput cells at 1, 2 and 4 requests). Prefix caching is on:
+- Before the harness, the same server had run about 30-40 minutes of other load in the same session (a 12-check
+  endpoint suite, a 68-prompt probe in two modes, throughput cells at 1, 2 and 4 requests, and throughput over
+  distinct prompts at 2 and 6 requests). Prefix caching is on:
   runs b and c at 1 stream, and the 6-stream run, hit the prefix cache for the harness prompts. That does not change
   the decode-speed metric; it shortens time to first token, which the 6-stream aggregate includes.
 - Its auto-score checks format and length (word ranges, bullet counts, JSON fields) and executes returned code

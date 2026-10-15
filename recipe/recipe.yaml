@@ -19,7 +19,7 @@ features:
     method: mtp
     num_speculative_tokens: 6
     num_speculative_tokens_per_batch_size: null
-    draft_lm_head_quantization: None
+    draft_lm_head_quantization: none
     draft_vocab: 0
     draft_confidence_threshold: 0.7   # drafting stops below this top-1 probability while one request runs
     draft_confidence_fallback_depth: 3   # fixed depth with two or more requests
