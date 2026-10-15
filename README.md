@@ -71,6 +71,34 @@ container, and leftover partial downloads or old revisions. It never deletes any
 each problem. `--verify` hashes every checkpoint file against the hub (`hf cache verify`; it reads all ~135 GB), and
 `--fix` re-runs `download.sh`, which resumes partial downloads and only adds files.
 
+## Two ways to run it
+
+Both run the same `vllm serve` arguments (`recipe/serve.args`, `recipe/serve.env`); only where the image comes from
+differs. `./recipe/qfn help` lists every command, and each one runs a script you can also run by hand.
+
+- **prod: the image we measured.** Our nightly gates measure one image; when a build is published with it,
+  `recipe/pins.env` names it (`PROD_IMAGE`, pinned by registry digest, and `PROD_IMAGE_ID`), and it is signed with
+  the key in `recipe/cosign.pub`. `./recipe/qfn up` pulls it (checking the signature if
+  [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) is installed), starts it in the
+  background, waits until it answers, warms it up and runs the known-answer checks. `./recipe/qfn status` shows
+  what is running.
+- **dev: rebuild the same serving code yourself and watch it load.** Everything that goes into it is in this
+  repository: the pinned vLLM nightly (by digest) and `recipe/patches`. `./recipe/qfn dev` builds it and starts it
+  in your terminal; the quick start below is the same thing step by step. Use this to read, check or change what
+  you run.
+
+  The two are not the same image. Prod is the image our lab built and measured; it carries the lab's patch file names
+  and task ids (under `/opt/qwen38`), which we leave as provenance, since removing them would change the measured
+  bytes. Dev applies the published copies of those patches, with internal names rewritten. At publish time we check
+  that both give AST-identical Python for every file the patches touch
+  (`results/<build>/dev-path-equivalence.json`): same serving code, different image bytes.
+
+```bash
+./recipe/qfn preflight && ./recipe/qfn download
+./recipe/qfn up                  # prod (when this build has a published image)
+./recipe/qfn dev                 # or dev: build, then run in this terminal
+```
+
 ## Quick start
 
 ```bash
@@ -129,6 +157,9 @@ git checkout main && git pull    # or: git checkout build-<date>-<sha8> for a sp
 ./recipe/launch.sh --detach      # in the background, so the next line can run (or run launch.sh in its own terminal)
 ./recipe/verify.sh               # once it answers, 10-12 minutes later
 ```
+
+`./recipe/qfn upgrade` does the `git` step and then fetches the new build's image: it pulls it when one is
+published (prod) and builds it otherwise; restart with `./recipe/qfn stop && ./recipe/qfn up` (or `qfn dev`).
 
 To go back, `git checkout` the previous tag and run `build.sh` and `launch.sh` again; its image is still on disk
 unless you removed it (`docker images qwen38-next-dgx`). A build's speed and quality numbers are in its results
@@ -237,3 +268,9 @@ tonyd2wild's ([repository](https://github.com/tonyd2wild/Qwen3.8-Flash-Next-NVFP
 pinned commit. The GSM8K subset is drawn from OpenAI's [grade-school-math](https://github.com/openai/grade-school-math)
 (MIT). Model weights are not distributed here; they are under the licences on the
 [model card](https://huggingface.co/nvidia/Qwen3.8-Flash-Next-NVFP4).
+
+**The prebuilt image (prod path).** It is vLLM's published image (Apache-2.0) plus the patches above, built on
+NVIDIA's CUDA container. It therefore contains NVIDIA software under the NVIDIA Deep Learning Container License,
+which is inside the image at `/NGC-DL-CONTAINER-LICENSE` and which you accept by using the image. This software
+contains source code provided by NVIDIA Corporation. This recipe and its image are not affiliated with or endorsed
+by NVIDIA. The dev path rebuilds the same serving code from the pinned vLLM base yourself.
