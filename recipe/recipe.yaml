@@ -1,26 +1,32 @@
-# qwen38-next-dgx-recipe, build 2026-10-08-81198e97. Field names follow vllm-project/recipes where they fit.
-recipe_version: "2026-10-08-81198e97"
+# qwen38-next-dgx-recipe, build 2026-10-14-77154ca6. Field names follow vllm-project/recipes where they fit.
+recipe_version: "2026-10-14-77154ca6"
 model_id: nvidia/Qwen3.8-Flash-Next-NVFP4
 model_revision: fc694b54fb0174e0913e6adf86691ef85a4ead47
 meta:
   hardware:
     dgx_spark_gb10: verified   # one DGX Spark; GB10 is NOT in the model card's supported hardware
-  last_verified: "2026-10-08"
+  last_verified: "2026-10-14"
 container:
-  base: vllm/vllm-openai@sha256:a83c7f976879e0c6101f734fd5b84a098d12d6d8d12baa41e31eb323b84b0802
-  vllm_commit: 81198e97ba7eee2a22540caaa756b7fdddcb4d93
-  vllm_version: "0.31.1rc1.dev88+g81198e97b"
+  base: vllm/vllm-openai@sha256:a7deff2c216def98c193352aca50fb03a2ee29231355b3033dc3789009f6d23e
+  vllm_commit: 77154ca6116ae34cbfe314beef1016bde9b63989
+  vllm_version: "0.32.0rc1.dev100+g77154ca61"
   torch: "2.13.0+cu130"
   flashinfer: "0.7.0.post1"
-  patches: 6   # recipe/patches/series
+  patches: 14   # recipe/patches/series
 nightly_required: true
 features:
   spec_decoding:
     method: mtp
-    num_speculative_tokens: 4
-    num_speculative_tokens_per_batch_size: [[1, 1, 4], [2, 6, 3]]
-    draft_lm_head_quantization: nvfp4
-    draft_vocab: 65536
+    num_speculative_tokens: 6
+    num_speculative_tokens_per_batch_size: null
+    draft_lm_head_quantization: none
+    draft_vocab: 0
+    draft_confidence_threshold: 0.7   # drafting stops below this top-1 probability while one request runs
+    draft_confidence_fallback_depth: 3   # fixed depth with two or more requests
+    draft_token_map: recipe/draft-token-maps/d22ff5232d12f6935add32541a2a447976349217e5b125669fab0e92e3e2a20b.json   # sha256 = file name; 32766 listed ids
+    draft_token_map_dynamic_rows: 16384
+    draft_token_map_quantization: nvfp4
+    recover_ssm: true   # --use-replayssm
   fp8_dense_groups: "gdn,attn,shared,mtp,lm_head"
 serve:
   served_model_name: qwen3.8-flash-next
@@ -32,3 +38,4 @@ tested_host:
   driver: "580.178.04 (open kernel module)"
   docker: "29.6.2"
   memory_total_gib: 121.69
+prod_image: ghcr.io/salient-data/qwen38-next-dgx@sha256:3d67df7b7b7d25a5da64f62c0f87f6109062584261fe77157f6d37de178d10b2   # ./recipe/qfn up pulls it; image sha256:320ab0f7dff536d4422a0bfdecc49b45d41d9a06cbccc7dcd1b1067f703d2dd4; signed (recipe/cosign.pub)

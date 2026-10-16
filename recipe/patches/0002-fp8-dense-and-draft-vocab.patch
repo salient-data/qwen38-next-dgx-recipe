@@ -1,10 +1,10 @@
-Patch 0002-fp8-dense-and-draft-vocab.patch for vLLM, base commit 81198e97ba7eee2a22540caaa756b7fdddcb4d93 (vllm/vllm-openai:nightly-81198e97ba7eee2a22540caaa756b7fdddcb4d93).
+Patch 0002-fp8-dense-and-draft-vocab.patch for vLLM, base commit 77154ca6116ae34cbfe314beef1016bde9b63989 (vllm/vllm-openai:nightly-77154ca6116ae34cbfe314beef1016bde9b63989).
 What: QWEN38_FP8_DENSE casts the checkpoint's BF16 dense linears (GDN, QSA, shared experts, MTP dense, lm_head) to 128x128 block FP8 at load (197 linears); QWEN4EXP_DRAFT_VOCAB limits MTP drafting to token ids below 65,536; keeps the QSA indexer projection unfused so its rows stay BF16.
 Upstream: no vLLM PR. FP8-dense cast and indexer handling written for this recipe; the reduced-vocabulary drafting ports tonyd2wild's mtp_draft_vocab.py (Tony DeAngelo, Tech2Wild / 2Wild, Apache-2.0; https://github.com/tonyd2wild/Qwen3.8-Flash-Next-NVFP4-DGX-Spark @ 6ad1c8f), credited in the code as 'Kai / 2Wild'.
 This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
 
 diff --git a/vllm/model_executor/layers/quantization/modelopt.py b/vllm/model_executor/layers/quantization/modelopt.py
-index 98af93c..2f352ea 100644
+index 8354f88..9d41a99 100644
 --- a/vllm/model_executor/layers/quantization/modelopt.py
 +++ b/vllm/model_executor/layers/quantization/modelopt.py
 @@ -1,6 +1,8 @@
@@ -16,7 +16,7 @@ index 98af93c..2f352ea 100644
  from collections.abc import Callable
  from dataclasses import dataclass
  from enum import Enum
-@@ -1536,6 +1538,61 @@ ModelOptMxFp8Config.FusedMoEMethodCls = ModelOptMxFp8FusedMoE
+@@ -1540,6 +1542,61 @@ ModelOptMxFp8Config.FusedMoEMethodCls = ModelOptMxFp8FusedMoE
  ModelOptMxFp8Config.KVCacheMethodCls = ModelOptKVCacheMethod
  
  
@@ -78,7 +78,7 @@ index 98af93c..2f352ea 100644
  class ModelOptMixedPrecisionConfig(ModelOptQuantConfigBase):
      """Config class for ModelOpt MIXED_PRECISION.
  
-@@ -1806,7 +1863,7 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfigBase):
+@@ -1823,7 +1880,7 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfigBase):
          # Excluded layers
          if self.is_layer_excluded(prefix):
              if isinstance(layer, (LinearBase, ParallelLMHead)):
@@ -87,7 +87,7 @@ index 98af93c..2f352ea 100644
              return None
  
          quant_algo = self._resolve_quant_algo(prefix)
-@@ -1818,7 +1875,7 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfigBase):
+@@ -1851,7 +1908,7 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfigBase):
              # the MoE method that shares the sub-config.
              if quant_algo is None or quant_algo not in LINEAR_ALGOS:
                  # Layer not in quantized_layers — leave unquantized
@@ -97,10 +97,10 @@ index 98af93c..2f352ea 100644
              return build_linear_method(getattr(self, subcfg_attr), quant_algo, prefix)
  
 diff --git a/vllm/models/qwen4_exp/nvidia/model.py b/vllm/models/qwen4_exp/nvidia/model.py
-index 2de883c..a3b9ccb 100644
+index 2fb056b..47056c4 100644
 --- a/vllm/models/qwen4_exp/nvidia/model.py
 +++ b/vllm/models/qwen4_exp/nvidia/model.py
-@@ -655,9 +655,20 @@ class Qwen4ExpForCausalLM(
+@@ -734,9 +734,20 @@ class Qwen4ExpForCausalLM(
          self.model = Qwen4ExpModel(
              vllm_config=vllm_config, prefix=maybe_prefix(prefix, "model")
          )
@@ -122,7 +122,7 @@ index 2de883c..a3b9ccb 100644
          )
          self.logits_processor = LogitsProcessor(config.vocab_size)
 diff --git a/vllm/models/qwen4_exp/nvidia/mtp.py b/vllm/models/qwen4_exp/nvidia/mtp.py
-index 6129061..5e7e694 100644
+index 32e95fa..2ff4709 100644
 --- a/vllm/models/qwen4_exp/nvidia/mtp.py
 +++ b/vllm/models/qwen4_exp/nvidia/mtp.py
 @@ -1,4 +1,13 @@
@@ -139,7 +139,7 @@ index 6129061..5e7e694 100644
  # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
  """Inference-only Qwen4Exp MTP (Multi-Token Predictor) model.
  
-@@ -357,6 +366,14 @@ class Qwen4ExpMultiTokenPredictor(nn.Module):
+@@ -397,6 +406,14 @@ class Qwen4ExpMultiTokenPredictor(nn.Module):
          return loader.load_weights(weights, mapper=mapper)
  
  
@@ -151,10 +151,10 @@ index 6129061..5e7e694 100644
 +        return 0
 +
 +
- class Qwen4ExpMTP(nn.Module, SupportsPP, Qwen4ExpMixtureOfExperts):
+ class Qwen4ExpMTP(nn.Module, SupportsHCSP, SupportsPP, Qwen4ExpMixtureOfExperts):
      packed_modules_mapping = {
          "qkv_proj": ["q_proj", "k_proj", "v_proj"],
-@@ -425,7 +442,123 @@ class Qwen4ExpMTP(nn.Module, SupportsPP, Qwen4ExpMixtureOfExperts):
+@@ -465,7 +482,123 @@ class Qwen4ExpMTP(nn.Module, SupportsHCSP, SupportsPP, Qwen4ExpMixtureOfExperts)
      def compute_logits(
          self, hidden_states: torch.Tensor, spec_step_idx: int = 0
      ) -> torch.Tensor | None:
@@ -280,10 +280,10 @@ index 6129061..5e7e694 100644
      def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
          def remap_weight_names():
 diff --git a/vllm/models/qwen4_exp/nvidia/qsa.py b/vllm/models/qwen4_exp/nvidia/qsa.py
-index 0246db8..8627672 100644
+index 9fb3667..7cdb1af 100644
 --- a/vllm/models/qwen4_exp/nvidia/qsa.py
 +++ b/vllm/models/qwen4_exp/nvidia/qsa.py
-@@ -129,6 +129,13 @@ class Qwen4ExpQSAQKVIndexerLinear(MergedColumnParallelLinear):
+@@ -130,6 +130,13 @@ class Qwen4ExpQSAQKVIndexerLinear(MergedColumnParallelLinear):
          return super().load_weights(remap_shards())
  
  
@@ -297,9 +297,9 @@ index 0246db8..8627672 100644
  def qsa_kv_cache_dtype(cache_config: CacheConfig, prefix: str) -> CacheDType:
      """The layer's KV cache dtype, honoring ``--kv-cache-dtype-skip-layers``."""
      if str(extract_layer_index(prefix)) in cache_config.kv_cache_dtype_skip_layers:
-@@ -494,7 +501,13 @@ class Qwen4ExpQSAAttention(Qwen3NextAttention, AttentionLayerBase):
-         self.use_fused_qsa_prepare = (
-             self.use_fused_qk_norm_rope_gate and self.indexer.use_fused_pre_indexer
+@@ -505,7 +512,13 @@ class Qwen4ExpQSAAttention(Qwen3NextAttention, AttentionLayerBase):
+                 or current_platform.has_device_capability(89)
+             )
          )
 -        self.fuse_indexer_projection = vllm_config.lora_config is None
 +        # QWEN38_FP8_DENSE: the "attn" group casts

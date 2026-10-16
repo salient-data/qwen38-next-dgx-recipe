@@ -1,0 +1,51 @@
+Patch 0007-quiet-boot.patch for vLLM, base commit 77154ca6116ae34cbfe314beef1016bde9b63989 (vllm/vllm-openai:nightly-77154ca6116ae34cbfe314beef1016bde9b63989).
+What: Stops the load-time warning for dtype casts that are exact (the checkpoint's 37 BF16 tensors loaded into FP32 parameters) and keeps it for casts that can change a value; registers the PLE gather environment variables so vLLM does not warn that they are unknown.
+Upstream: no vLLM PR. written for this recipe.
+This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
+
+diff --git a/vllm/envs.py b/vllm/envs.py
+index dbbc49f..7e20e0b 100755
+--- a/vllm/envs.py
++++ b/vllm/envs.py
+@@ -616,6 +616,15 @@ def _resolve_rust_cli_path() -> str | None:
+ 
+ 
+ environment_variables: dict[str, Callable[[], Any]] = {
++    # Qwen4Exp host_file_gather (PLE rows read from the checkpoint per step):
++    # threads in the preadv pool, and the fewest distinct rows a gather needs
++    # before it uses the pool instead of reading serially.
++    "VLLM_PLE_FILE_GATHER_WORKERS": lambda: int(
++        os.getenv("VLLM_PLE_FILE_GATHER_WORKERS", "64")
++    ),
++    "VLLM_PLE_FILE_GATHER_POOL_MIN_ROWS": lambda: int(
++        os.getenv("VLLM_PLE_FILE_GATHER_POOL_MIN_ROWS", "256")
++    ),
+     # ================== Installation Time Env Vars ==================
+     # Target device of vLLM, supporting [cuda (by default),
+     # rocm, cpu]
+diff --git a/vllm/model_executor/models/utils.py b/vllm/model_executor/models/utils.py
+index ef1aac6..e874068 100644
+--- a/vllm/model_executor/models/utils.py
++++ b/vllm/model_executor/models/utils.py
+@@ -213,6 +213,21 @@ def _get_tied_embedding_params(module: nn.Module) -> dict[str, str]:
+     return aliased
+ 
+ 
++# Casts that represent every source value exactly: loading through them changes nothing,
++# so they are not worth a warning (e.g. a BF16 A_log into vLLM's FP32 parameter).
++_EXACT_WIDENING = {
++    (torch.bfloat16, torch.float32),
++    (torch.float16, torch.float32),
++    (torch.bfloat16, torch.float64),
++    (torch.float16, torch.float64),
++    (torch.float32, torch.float64),
++}
++
++
++def _is_exact_widening(src: torch.dtype, dst: torch.dtype) -> bool:
++    return (src, dst) in _EXACT_WIDENING
++
++
+ class AutoWeightsLoader:
+     """Helper class to load weights into a [`torch.nn.Module`][]. It is able
+     to automatically detect child modules and parameters while iterating over

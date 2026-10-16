@@ -1,0 +1,53 @@
+{
+ "gate": "fixed checks + GSM8K 100-problem subset (temperature 0.6, top-p 0.95, thinking on, max 3072 tokens)",
+ "scores": {
+  "arith": {
+   "passed": 12,
+   "total": 12
+  },
+  "ten_task": {
+   "passed": 9,
+   "total": 10
+  },
+  "gsm8k": {
+   "passed": 99,
+   "total": 100,
+   "accuracy_percent": 99.0,
+   "wilson95_percent": [
+    94.55,
+    99.82
+   ]
+  }
+ },
+ "phases": {
+  "smoke": "pass",
+  "arith": "scored (see scores)",
+  "tasks": "scored (see scores)",
+  "truncation": "pass",
+  "canary": "pass",
+  "gsm8k": "scored (see scores)",
+  "needle": "pass"
+ },
+ "coverage": {
+  "required": [
+   "smoke",
+   "arith",
+   "tasks",
+   "truncation",
+   "canary",
+   "gsm8k",
+   "needle"
+  ],
+  "ran": [
+   "arith",
+   "canary",
+   "gsm8k",
+   "needle",
+   "smoke",
+   "tasks",
+   "truncation"
+  ],
+  "missing": [],
+  "complete": true
+ }
+}

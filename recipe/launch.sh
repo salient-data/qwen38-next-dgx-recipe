@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Start the server with the exact arguments this recipe was measured with.
-#   ./launch.sh               run it in this terminal: you watch it load (10-12 minutes), Ctrl-C stops and removes it
+#   ./launch.sh               run it in this terminal: you watch it load (about 5-6 minutes), Ctrl-C stops and removes it
 #                             (during the weight load vLLM acts on Ctrl-C only once the load ends; ./stop.sh is at once)
 #   ./launch.sh --detach, -d  run it in the background (production); follow with docker logs -f, stop with ./stop.sh
 #   ./launch.sh --print       print the docker command, run nothing (combine with --detach to see that form)
@@ -31,7 +31,7 @@ while (( $# )); do
   esac
   shift
 done
-# The prod path runs the image our nightly measured, pinned by its registry digest (QFN-155); the dev path, the default,
+# The prod path runs the image our nightly measured, pinned by its registry digest; the dev path, the default,
 # runs the image ./build.sh makes from the pinned base and the published patches: the same serving code, a different image.
 if (( PROD )); then
   [[ -n "${PROD_IMAGE:-}" ]] || { echo "this build has no published image (no PROD_IMAGE in pins.env): build it with ./build.sh and run ./launch.sh without --prod" >&2; exit 1; }
@@ -137,7 +137,7 @@ if [[ "${FORCE:-0}" != 1 ]]; then
 fi
 ra="$(cat /sys/block/"$(lsblk -no pkname "$(df --output=source "$MODEL_DIR" | tail -1)" 2>/dev/null | head -1)"/queue/read_ahead_kb 2>/dev/null || true)"
 if [[ "$ra" =~ ^[0-9]+$ && "$ra" -lt 8192 ]]; then
-  echo "note: read-ahead on the checkpoint's disk is ${ra} KB; 8192 takes a cold load from about 12 to about 10 minutes (see docs/troubleshooting.md)." >&2
+  echo "note: read-ahead on the checkpoint's disk is ${ra} KB; 8192 shortened cold loads on earlier builds (see docs/troubleshooting.md)." >&2
 fi
 mkdir -p "$CACHE_DIR"
 if [[ -n "$TOKEN_MAP" ]]; then
@@ -268,6 +268,6 @@ else
   [[ -z "$MWLOG" ]] || { memwatch "$MWLOG" & }
   echo "starting $NAME in this terminal; it answers when the log says 'Application startup complete'."
   echo "from another terminal: ./verify.sh checks it, ./stop.sh (or Ctrl-C here) stops it."
-  echo "while the weights load (about 10 minutes), vLLM acts on Ctrl-C only when the load ends; ./stop.sh stops it at once."
+  echo "while the weights load (about 2 minutes), vLLM acts on Ctrl-C only when the load ends; ./stop.sh stops it at once."
   exec "${cmd[@]}"
 fi

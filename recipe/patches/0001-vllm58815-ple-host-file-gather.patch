@@ -1,13 +1,13 @@
-Patch 0001-vllm58815-ple-host-file-gather.patch for vLLM, base commit 81198e97ba7eee2a22540caaa756b7fdddcb4d93 (vllm/vllm-openai:nightly-81198e97ba7eee2a22540caaa756b7fdddcb4d93).
+Patch 0001-vllm58815-ple-host-file-gather.patch for vLLM, base commit 77154ca6116ae34cbfe314beef1016bde9b63989 (vllm/vllm-openai:nightly-77154ca6116ae34cbfe314beef1016bde9b63989).
 What: Reads the 51.2 GB PLE n-gram table's rows from the checkpoint's safetensors file each step (pread with a 64-worker pool), so the table is never resident and the model fits in 121 GiB.
 Upstream: https://github.com/vllm-project/vllm/pull/58815 by @Trosfy (open), ported at head a7ebbe5f; adds the parallel preadv pool (VLLM_PLE_FILE_GATHER_WORKERS).
 This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
 
 diff --git a/vllm/config/engram.py b/vllm/config/engram.py
-index fd95bc2..90b291a 100644
+index 7a7ed8f..20fe4da 100644
 --- a/vllm/config/engram.py
 +++ b/vllm/config/engram.py
-@@ -38,6 +38,11 @@ class EngramConfig:
+@@ -37,6 +37,11 @@ class EngramConfig:
      cpu_offload: bool = True
      """Store embedding weights in pinned CPU memory for UVA lookup."""
  
@@ -19,7 +19,7 @@ index fd95bc2..90b291a 100644
      embedding_across_dp: bool = False
      """Shard embeddings across TP and all DP ranks when enabled.
      Otherwise, each DP rank has a separate TP-sharded embedding replica."""
-@@ -81,6 +86,12 @@ class EngramConfig:
+@@ -80,6 +85,12 @@ class EngramConfig:
                  "EngramConfig requires a model with supported Engram "
                  "embeddings and non-empty n-gram layer ids."
              )
@@ -32,20 +32,29 @@ index fd95bc2..90b291a 100644
  
      def resolve_dp_shared_memory(self, parallel_config: "ParallelConfig") -> None:
          """Share host tables by default wherever the configuration permits."""
-@@ -107,6 +118,8 @@ class EngramConfig:
+@@ -106,6 +117,17 @@ class EngramConfig:
              raise ValueError(
                  "Engram embedding_across_dp is not supported with elastic EP yet."
              )
 +        if self.host_file_gather and parallel_config.enable_elastic_ep:
 +            raise ValueError("host_file_gather is not supported with elastic EP.")
++        if (
++            self.host_file_gather
++            and parallel_config.tensor_parallel_size > 1
++            and (
++                parallel_config.enable_hc_sp
++                or parallel_config.use_sequence_parallel_moe
++            )
++        ):
++            raise ValueError("host_file_gather does not support sequence parallelism")
  
      def get_parallel_size(self, parallel_config: "ParallelConfig") -> int:
          """Derive the embedding group size from the parallel configuration."""
 diff --git a/vllm/models/qwen4_exp/common/ngram_embedding.py b/vllm/models/qwen4_exp/common/ngram_embedding.py
-index 6dad6b7..1117748 100644
+index 5bf75cb..0c3b1b9 100644
 --- a/vllm/models/qwen4_exp/common/ngram_embedding.py
 +++ b/vllm/models/qwen4_exp/common/ngram_embedding.py
-@@ -54,7 +54,7 @@ logger = init_logger(__name__)
+@@ -59,7 +59,7 @@ logger = init_logger(__name__)
  
  
  class Qwen4ExpPLEEmbedding(PLEVocabParallelEmbedding, ABC):
@@ -54,7 +63,7 @@ index 6dad6b7..1117748 100644
  
      supports_prefetch: ClassVar[bool] = False
  
-@@ -163,9 +163,9 @@ class Qwen4ExpPLEEmbedding(PLEVocabParallelEmbedding, ABC):
+@@ -171,9 +171,9 @@ class Qwen4ExpPLEEmbedding(PLEVocabParallelEmbedding, ABC):
  
  
  class Qwen4ExpPLEEmbeddingMethod(QuantizeMethodBase):
@@ -66,7 +75,7 @@ index 6dad6b7..1117748 100644
      requires_device_loading: bool = False
  
      @staticmethod
-@@ -235,6 +235,12 @@ class Qwen4ExpPLEEmbeddingMethod(QuantizeMethodBase):
+@@ -258,6 +258,12 @@ class Qwen4ExpPLEEmbeddingMethod(QuantizeMethodBase):
      def embedding(self, layer: nn.Module, input_: torch.Tensor) -> torch.Tensor:
          return F.embedding(input_, layer.weight)
  
@@ -76,10 +85,10 @@ index 6dad6b7..1117748 100644
 +        if bind is not None:
 +            bind()
 +
-     @abstractmethod
-     def dequantize(
-         self,
-@@ -324,6 +330,7 @@ class Qwen4ExpPLEFp8EmbeddingMethod(Qwen4ExpPLEEmbeddingMethod):
+     def lookup_dtype(self, layer: nn.Module) -> torch.dtype:
+         """Return the dtype of rows that a pinned-host lookup writes."""
+         return layer.weight.dtype
+@@ -369,6 +375,7 @@ class Qwen4ExpPLEFp8EmbeddingMethod(Qwen4ExpPLEEmbeddingMethod):
          sentinel = torch.finfo(torch.float32).min
          if torch.any(layer.weight_scale == sentinel):
              raise ValueError("FP8 PLE checkpoint is missing its global scale")
@@ -137,7 +146,7 @@ index 2461685..c9584d8 100644
          return model_inputs
  
 diff --git a/vllm/models/qwen4_exp/nvidia/ngram_embedding.py b/vllm/models/qwen4_exp/nvidia/ngram_embedding.py
-index 3be6ea6..d3aea46 100644
+index 1a36551..3dd2778 100644
 --- a/vllm/models/qwen4_exp/nvidia/ngram_embedding.py
 +++ b/vllm/models/qwen4_exp/nvidia/ngram_embedding.py
 @@ -1,8 +1,11 @@
@@ -153,7 +162,7 @@ index 3be6ea6..d3aea46 100644
  
  import torch
  from torch import nn
-@@ -38,6 +41,207 @@ __all__ = [
+@@ -43,6 +46,216 @@ __all__ = [
  ]
  
  
@@ -184,7 +193,16 @@ index 3be6ea6..d3aea46 100644
 +        num_ngram_heads: int = 1,
 +        max_total_tokens: int = 0,
 +        data_parallel_rank: int = 0,
++        reduce_results: bool = True,
 +    ) -> None:
++        # Staged rows are served as stored and decoded by the method's
++        # dequantize(); NVFP4 decodes during lookup with per-row block scales,
++        # which this backend does not read from the checkpoint file.
++        if isinstance(embedding_method, Qwen4ExpPLENvFp4EmbeddingMethod):
++            raise NotImplementedError(
++                "host_file_gather does not support NVFP4 Qwen4Exp PLE tables; use "
++                "a checkpoint with a BF16 or FP8 PLE table, or drop host_file_gather."
++            )
 +        super().__init__(
 +            num_embeddings,
 +            embedding_dim,
@@ -193,6 +211,7 @@ index 3be6ea6..d3aea46 100644
 +            prefix=prefix,
 +            embedding_method=embedding_method,
 +            data_parallel_rank=data_parallel_rank,
++            reduce_results=reduce_results,
 +        )
 +        self._dummy = get_current_vllm_config().load_config.load_format == "dummy"
 +        shape = (max_total_tokens, num_ngram_heads, embedding_dim)
@@ -349,19 +368,18 @@ index 3be6ea6..d3aea46 100644
 +        """Return the rows staged for this step."""
 +        return self._staging[: hidden_states.shape[0]].flatten(-2)
 +
-+    def start_prefetch(
-+        self,
-+        hidden_states: torch.Tensor,
-+        ngram_ids: torch.Tensor,
-+    ) -> None:
++    def start_prefetch(self, ngram_ids: torch.Tensor) -> None:
 +        """Rows are staged in ``prepare_inputs``, so prefetch is a no-op."""
 +        return None
++
++    def finalize_prefetch(self, total_tokens: int) -> torch.Tensor:
++        raise RuntimeError("host_file_gather does not prefetch")
 +
 +
  class Qwen4ExpNGramEmbedding(nn.Module):
      _MASK64 = (1 << 64) - 1
      _SPLITMIX_GAMMA = 0x9E3779B97F4A7C15
-@@ -207,7 +411,9 @@ class Qwen4ExpNGramEmbedding(nn.Module):
+@@ -214,7 +427,9 @@ class Qwen4ExpNGramEmbedding(nn.Module):
              params_dtype = torch.get_default_dtype()
          engram_config = get_current_vllm_config().engram_config
          embedding_cls = (
@@ -372,34 +390,36 @@ index 3be6ea6..d3aea46 100644
              if engram_config is not None and engram_config.cpu_offload
              else Qwen4ExpPLEDeviceEmbedding
          )
-@@ -356,7 +562,9 @@ class Qwen4ExpNGramEmbedding(nn.Module):
-         ngram_context: torch.Tensor,
+@@ -382,6 +597,8 @@ class Qwen4ExpNGramEmbedding(nn.Module):
      ) -> torch.Tensor:
+         """Return full embeddings or a token shard after combining vocabulary owners."""
          embedding = self.ngram_embedding
--        if embedding.supports_prefetch:
-+        if embedding.supports_prefetch or isinstance(
-+            embedding, Qwen4ExpPLEFileGatherEmbedding
-+        ):
-             return embedding(hidden_states)
-         ngram_ids = self.compute_ngram_ids(input_ids, query_start_loc, ngram_context)
-         return self.ngram_embedding(ngram_ids).flatten(-2)
-@@ -432,6 +640,12 @@ class Qwen4ExpNGramEmbedding(nn.Module):
-                         f"expected {expected_shape}, got "
++        if isinstance(embedding, Qwen4ExpPLEFileGatherEmbedding):
++            return embedding(hidden_states)
+         if embedding.supports_prefetch:
+             # Prefetch contains full tokens even when hidden states are sharded.
+             embeddings = embedding.finalize_prefetch(total_tokens=input_ids.shape[0])
+@@ -471,6 +688,14 @@ class Qwen4ExpNGramEmbedding(nn.Module):
+                         f"{suffix}: expected {expected_shape}, got "
                          f"{tuple(loaded_weight.shape)}"
                      )
-+                if isinstance(embedding, Qwen4ExpPLEFileGatherEmbedding):
++                if suffix == "weight" and isinstance(
++                    embedding, Qwen4ExpPLEFileGatherEmbedding
++                ):
 +                    embedding.accept_checkpoint_shard(
 +                        shard_index, loaded_weight, shard_size
 +                    )
 +                    loaded.add("ngram_embedding.weight")
 +                    continue
-                 embedding.weight.weight_loader(
-                     embedding.weight,
-                     loaded_weight,
-@@ -446,6 +660,23 @@ class Qwen4ExpNGramEmbedding(nn.Module):
+                 # A cast would silently reinterpret packed E2M1 bytes.
+                 if nvfp4_method is not None and loaded_weight.dtype != parameter.dtype:
+                     raise ValueError(
+@@ -497,3 +722,20 @@ class Qwen4ExpNGramEmbedding(nn.Module):
+         if regular_weights:
+             loaded.update(AutoWeightsLoader(self).load_weights(regular_weights))
          return loaded
- 
- 
++
++
 +def stage_checkpoint_rows(
 +    modules: list[Qwen4ExpNGramEmbedding],
 +    input_ids: torch.Tensor,
@@ -415,8 +435,3 @@ index 3be6ea6..d3aea46 100644
 +        torch.accelerator.current_stream().synchronize()
 +    for module in modules:
 +        module.ngram_embedding.stage_rows(num_tokens)
-+
-+
- __all__ = [
-     "Qwen4ExpNGramEmbedding",
- ]

@@ -1,0 +1,201 @@
+Patch 0014-moe-batched-load.patch for vLLM, base commit 77154ca6116ae34cbfe314beef1016bde9b63989 (vllm/vllm-openai:nightly-77154ca6116ae34cbfe314beef1016bde9b63989).
+What: Reads the routed experts' weights from the checkpoint in large parallel preadv calls into fresh tensors, in the same order and with the same bytes, instead of copying each expert out of the memory map a page at a time; a cold boot's weight load drops from about 450-540 s to about 120 s with identical served text (QWEN38_BATCHED_LOAD=0 turns it off). The design follows TensorFold's loader (merged large reads).
+Upstream: no vLLM PR. written for this recipe.
+This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
+
+diff --git a/vllm/model_executor/layers/fused_moe/routed_experts.py b/vllm/model_executor/layers/fused_moe/routed_experts.py
+index 71f4206..e5023b2 100644
+--- a/vllm/model_executor/layers/fused_moe/routed_experts.py
++++ b/vllm/model_executor/layers/fused_moe/routed_experts.py
+@@ -39,6 +39,34 @@ if TYPE_CHECKING:
+ 
+ logger = init_logger(__name__)
+ 
++# : QWEN38_PINNED_EXPERT_COPY=1 stages each host-to-device
++# expert copy through one reusable pinned buffer, so the CUDA copy reads pinned
++# memory instead of a pageable (possibly file-backed) source. The copy stays
++# synchronous, so the buffer is free again when copy_ returns. Same bytes.
++_QWEN38_PINNED_STAGE: list[torch.Tensor] = []
++
++
++def _qwen38_expert_copy(dst: torch.Tensor, src: torch.Tensor) -> None:
++    import os
++
++    if (
++        os.environ.get("QWEN38_PINNED_EXPERT_COPY", "0") != "1"
++        or src.device.type != "cpu"
++        or dst.device.type != "cuda"
++        or not src.is_contiguous()
++        or src.numel() * src.element_size() < (64 << 10)
++    ):
++        dst.copy_(src)
++        return
++    nbytes = src.numel() * src.element_size()
++    if not _QWEN38_PINNED_STAGE or _QWEN38_PINNED_STAGE[0].numel() < nbytes:
++        _QWEN38_PINNED_STAGE[:] = [
++            torch.empty(max(nbytes, 64 << 20), dtype=torch.uint8, pin_memory=True)
++        ]
++    stage = _QWEN38_PINNED_STAGE[0][:nbytes].view(src.dtype).view(src.shape)
++    stage.copy_(src)
++    dst.copy_(stage)
++
+ 
+ def _index_expert_mapping(
+     mapping: list[tuple[str, str, int, str]],
+@@ -569,7 +597,7 @@ class RoutedExperts(PluggableLayer):
+             hidden_dim=hidden_dim,
+             shard_dim=shard_dim,
+         )
+-        expert_data.copy_(loaded_weight)
++        _qwen38_expert_copy(expert_data, loaded_weight)
+ 
+     def _load_w2(
+         self,
+@@ -620,7 +648,7 @@ class RoutedExperts(PluggableLayer):
+             ):
+                 dst.copy_(src)
+             return
+-        expert_data.copy_(loaded_weight)
++        _qwen38_expert_copy(expert_data, loaded_weight)
+ 
+     def _load_single_value(
+         self, param: torch.nn.Parameter, loaded_weight: torch.Tensor, expert_id: int
+diff --git a/vllm/model_executor/model_loader/weight_utils.py b/vllm/model_executor/model_loader/weight_utils.py
+index 0a834cd..a41d3bf 100644
+--- a/vllm/model_executor/model_loader/weight_utils.py
++++ b/vllm/model_executor/model_loader/weight_utils.py
+@@ -3,6 +3,7 @@
+ """Utilities for downloading and initializing model weights."""
+ 
+ import asyncio
++import collections
+ import concurrent.futures
+ import fnmatch
+ import glob
+@@ -1206,11 +1207,121 @@ def safetensors_weights_iterator(
+             yield from unflattened_state_dict.items()
+         else:
+             with safe_open(st_file, framework="pt") as f:
+-                for name in f.keys():  # noqa: SIM118
+-                    if should_skip_weight(name, local_expert_ids):
+-                        continue
+-                    param = f.get_tensor(name)
+-                    yield name, param
++                names = [
++                    name
++                    for name in f.keys()  # noqa: SIM118
++                    if not should_skip_weight(name, local_expert_ids)
++                ]
++                if _qwen38_batched_load_enabled() and safetensors_load_strategy in (
++                    None,
++                    "lazy",
++                ):
++                    yield from _qwen38_batched_expert_tensors(st_file, names, f)
++                else:
++                    for name in names:
++                        param = f.get_tensor(name)
++                        yield name, param
++
++
++# : read routed-expert tensors with large preadv calls on a
++# thread pool instead of handing FusedMoE views of the shard's mmap. On GB10 the
++# per-expert copy_ from the mmap ran at ~214 MB/s on one core ( profile:
++# 74% of the engine core's load time). The bytes, names and yield order are
++# unchanged; every other tensor still comes from safe_open lazily, so tensors the
++# model drops (the PLE tables under host_file_gather) are never read.
++# QWEN38_BATCHED_LOAD=0 restores upstream behaviour.
++_QWEN38_EXPERT_NAME = re.compile(r"\.experts\.\d+\.")
++_QWEN38_ST_DTYPES = {
++    "F64": torch.float64,
++    "F32": torch.float32,
++    "F16": torch.float16,
++    "BF16": torch.bfloat16,
++    "F8_E4M3": torch.float8_e4m3fn,
++    "F8_E5M2": torch.float8_e5m2,
++    "I64": torch.int64,
++    "I32": torch.int32,
++    "I16": torch.int16,
++    "I8": torch.int8,
++    "U8": torch.uint8,
++    "BOOL": torch.bool,
++}
++
++
++def _qwen38_batched_load_enabled() -> bool:
++    return os.environ.get("QWEN38_BATCHED_LOAD", "1") != "0"
++
++
++def _qwen38_read_exact(fd: int, out: torch.Tensor, offset: int) -> None:
++    view = memoryview(out.numpy()).cast("B")
++    done = 0
++    while done < len(view):
++        n = os.preadv(fd, [view[done:]], offset + done)
++        if n <= 0:
++            raise OSError(f"short read at offset {offset + done}")
++        done += n
++
++
++def _qwen38_batched_expert_tensors(
++    st_file: str, names: list[str], f: Any
++) -> Generator[tuple[str, torch.Tensor], None, None]:
++    with open(st_file, "rb") as fh:
++        header_len = int.from_bytes(fh.read(8), "little")
++        header = json.loads(fh.read(header_len))
++    base = 8 + header_len
++    fast = {
++        name
++        for name in names
++        if _QWEN38_EXPERT_NAME.search(name)
++        and header.get(name, {}).get("dtype") in _QWEN38_ST_DTYPES
++    }
++    if not fast:
++        for name in names:
++            yield name, f.get_tensor(name)
++        return
++    threads = max(1, int(os.environ.get("QWEN38_BATCHED_LOAD_THREADS", "8")))
++    window = max(1, int(os.environ.get("QWEN38_BATCHED_LOAD_WINDOW_MB", "1024"))) << 20
++    fd = os.open(st_file, os.O_RDONLY)
++    with suppress(AttributeError, OSError):
++        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
++
++    def read(name: str) -> torch.Tensor:
++        meta = header[name]
++        start, end = meta["data_offsets"]
++        buf = torch.empty(end - start, dtype=torch.uint8)
++        if end > start:
++            _qwen38_read_exact(fd, buf, base + start)
++        return buf.view(_QWEN38_ST_DTYPES[meta["dtype"]]).reshape(meta["shape"])
++
++    def nbytes(name: str) -> int:
++        start, end = header[name]["data_offsets"]
++        return end - start
++
++    order = [name for name in names if name in fast]
++    pending: collections.deque[tuple[str, concurrent.futures.Future, int]] = (
++        collections.deque()
++    )
++    executor = concurrent.futures.ThreadPoolExecutor(
++        max_workers=threads, thread_name_prefix="qwen38-load"
++    )
++    try:
++        nxt, inflight = 0, 0
++        for name in names:
++            if name not in fast:
++                yield name, f.get_tensor(name)
++                continue
++            while nxt < len(order) and (not pending or inflight < window):
++                size = nbytes(order[nxt])
++                pending.append((order[nxt], executor.submit(read, order[nxt]), size))
++                inflight += size
++                nxt += 1
++            head, future, size = pending.popleft()
++            assert head == name, (head, name)
++            tensor = future.result()
++            inflight -= size
++            yield name, tensor
++    finally:
++        executor.shutdown(wait=True, cancel_futures=True)
++        os.close(fd)
+ 
+ 
+ def multi_thread_safetensors_weights_iterator(
