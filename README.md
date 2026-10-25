@@ -99,7 +99,7 @@ differs. `./recipe/qfn help` lists every command, and each one runs a script you
   The two are not the same image. Prod is the image our lab built and measured; it carries the lab's patch file names
   and task ids (under `/opt/qwen38`), which we leave as provenance, since removing them would change the measured
   bytes. Dev applies the published copies of those patches, with internal names rewritten. At publish time we check
-  that both give AST-identical Python for every file the patches touch
+  that both give the same Python AST for every file the patches touch, docstring text aside
   (`results/<build>/dev-path-equivalence.json`): same serving code, different image bytes.
 
 ```bash
