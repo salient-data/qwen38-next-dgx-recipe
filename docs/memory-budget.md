@@ -1,6 +1,6 @@
 # Memory on one DGX Spark
 
-Measured on build `2026-10-22-8e2beaa3` (see `results/`), on four boots on 2026-10-25: three of the prod image, one of an image built with `build.sh`.
+Measured on build `2026-10-22-8e2beaa3` on four boots on 2026-10-25: three of the prod image, one of an image built with `build.sh` (the vLLM log lines are in `results/2026-10-22-8e2beaa3/boots-2026-10-25.txt`).
 
 | | |
 |---|---|
@@ -32,7 +32,7 @@ result in this repo carries a GSM8K score and `verify.sh` asks two questions wit
 
 - Start from a quiet machine: about 100 GiB free (`free -g`). Other GPU work, a desktop session with large
   browser tabs, or another inference server will make the load fail or the KV pool smaller.
-- Loading took about 6 minutes on our Spark (350-371 s on four boots), from the start to a server that answers: the
+- Loading took about 6 minutes on our Spark (350-371 s on the three prod boots), from the start to a server that answers: the
   weight load about 120 s from a cold page cache ("Loading weights took 118.66 seconds"; "Model loading took 73.57 GiB memory and 150.56 seconds",
   drafter included), then the KV cache profile, CUDA graph capture and warm-up. The `moe-batched-load` patch reads the routed experts
   in large parallel reads; with it off (`QWEN38_BATCHED_LOAD=0`) the weight load runs on one CPU core and takes about

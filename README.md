@@ -247,7 +247,7 @@ See [bench/README.md](bench/README.md): the third-party harness (`bench/run-thir
 - The MTP drafter proposes from a reduced set of tokens (with one request, 32,766 fixed ids plus 16,384 chosen per
   context; with two to six, the 65,536 lowest ids), so non-English text may draft less well and run slower; this
   build has not measured that.
-- The KV pool (about 1.0M tokens) is aggregate capacity across requests, not one request's context.
+- The KV pool (about 1.0-1.1M tokens) is aggregate capacity across requests, not one request's context.
 
 ## Troubleshooting
 
@@ -275,7 +275,7 @@ replaces the one in this repo only if, against the build it would replace and in
 passes: the server boots with at least 90% of the KV pool; a 12-check endpoint suite; the quality checks above
 (GSM8K at least 98/100, arithmetic 11/12, ten tasks 9/10, needle and canary pass); decode speed over 68 prompts at one
 request at least 0.97x; aggregate throughput over distinct prompts at 2 and 6 requests at least 0.95x; and a healthcheck once
-it serves. It must also beat the published harness figures on two nights in a row (the first build here,
+it serves. It must also beat tonyd2wild's published harness figures on two nights in a row (the first build here,
 2026-10-08, was published after one night, before that rule existed).
 
 ## Credits and licence
