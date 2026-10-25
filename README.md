@@ -40,13 +40,17 @@ For scale: tonyd2wild's own recipe, which we reran on our Spark on 2026-10-03 wi
 Raw data, identity and quality: [`results/2026-10-14-77154ca6/`](results/2026-10-14-77154ca6/).
 <!-- /generated:results -->
 
+The current build on one page: [`build.html`](build.html) has its identity, launch settings, results, the gates it
+passed, and every patch with its source and full diff. Open it from your clone in a browser (GitHub shows the HTML
+source); each build's copy is also in its `results/<build>/` directory.
+
 How to read this table:
 - The speed rows are a **recipe comparison** with tonyd2wild's published figures, measured on two different Sparks
   on different dates. Our recipe and theirs differ in vLLM build, how the PLE rows are read (per step in the forward
   pass here, a staged gather in theirs), speculation settings (with one request we draft up to 6 tokens and stop early when the drafter's top-1
   probability falls below 0.7; with two to six requests, 3), dense-layer precision (we cast BF16 dense layers to FP8
-  block-128), draft head (a context-aware sparse head here: 32,766 fixed token ids plus 16,384 rows chosen per
-  context, NVFP4), KV dtype of the
+  block-128), draft head (with one request, a context-aware sparse head: 32,766 fixed token ids plus 16,384 rows
+  chosen per context, NVFP4; with two to six, the 65,536 lowest token ids, NVFP4), KV dtype of the
   MTP layer (BF16 here) and **prefix caching (on here, off in theirs)**. Prefix
   caching does not change the 1-stream decode metric; it shortens time to first token, which the 6-stream
   aggregate includes (we estimate at most 1-2% of it).
@@ -239,8 +243,9 @@ See [bench/README.md](bench/README.md): the third-party harness (`bench/run-thir
 - One host. No noise floor across hosts; numbers on your Spark will differ.
 - Not tested here: a single request near the 262,144-token maximum (the longest prompt measured is about 131K),
   vision and video inputs, more than 6 concurrent sequences, thinking-on throughput.
-- The MTP drafter proposes from a reduced set of tokens (32,766 fixed ids plus 16,384 chosen per context), so
-  non-English text may draft less well and run slower; this build has not measured that.
+- The MTP drafter proposes from a reduced set of tokens (with one request, 32,766 fixed ids plus 16,384 chosen per
+  context; with two to six, the 65,536 lowest ids), so non-English text may draft less well and run slower; this
+  build has not measured that.
 - The KV pool (about 1.0M tokens) is aggregate capacity across requests, not one request's context.
 
 ## Troubleshooting
