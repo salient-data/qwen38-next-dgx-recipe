@@ -1,13 +1,13 @@
-Patch 0007-quiet-boot.patch for vLLM, base commit 77154ca6116ae34cbfe314beef1016bde9b63989 (vllm/vllm-openai:nightly-77154ca6116ae34cbfe314beef1016bde9b63989).
+Patch 0005-quiet-boot.patch for vLLM, base commit 8e2beaa3bff595577a069d49d96bde9074294ec2 (vllm/vllm-openai:nightly-8e2beaa3bff595577a069d49d96bde9074294ec2).
 What: Stops the load-time warning for dtype casts that are exact (the checkpoint's 37 BF16 tensors loaded into FP32 parameters) and keeps it for casts that can change a value; registers the PLE gather environment variables so vLLM does not warn that they are unknown.
 Upstream: no vLLM PR. written for this recipe.
 This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
 
 diff --git a/vllm/envs.py b/vllm/envs.py
-index dbbc49f..7e20e0b 100755
+index c0032c45..5201577c 100755
 --- a/vllm/envs.py
 +++ b/vllm/envs.py
-@@ -616,6 +616,15 @@ def _resolve_rust_cli_path() -> str | None:
+@@ -613,6 +613,15 @@ def _resolve_rust_cli_path() -> str | None:
  
  
  environment_variables: dict[str, Callable[[], Any]] = {
@@ -24,7 +24,7 @@ index dbbc49f..7e20e0b 100755
      # Target device of vLLM, supporting [cuda (by default),
      # rocm, cpu]
 diff --git a/vllm/model_executor/models/utils.py b/vllm/model_executor/models/utils.py
-index ef1aac6..e874068 100644
+index ef1aac6d..e8740681 100644
 --- a/vllm/model_executor/models/utils.py
 +++ b/vllm/model_executor/models/utils.py
 @@ -213,6 +213,21 @@ def _get_tied_embedding_params(module: nn.Module) -> dict[str, str]:

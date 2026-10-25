@@ -1,0 +1,95 @@
+Patch 0014-draft-head-per-batch.patch for vLLM, base commit 8e2beaa3bff595577a069d49d96bde9074294ec2 (vllm/vllm-openai:nightly-8e2beaa3bff595577a069d49d96bde9074294ec2).
+What: Adds draft_token_map_max_rows to the speculative config: the sparse draft head (vllm#59740's token map) drafts only for steps with at most that many rows (one per running request), and the 65,536-row NVFP4 draft head drafts above it. The sparse head's dynamic rows cost time per row: they pay with one request and not with six. Unset, the token map is used at every batch size.
+Upstream: no vLLM PR. written for this recipe.
+This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
+
+diff --git a/vllm/config/speculative.py b/vllm/config/speculative.py
+index 02215663..ca129c90 100644
+--- a/vllm/config/speculative.py
++++ b/vllm/config/speculative.py
+@@ -497,6 +497,13 @@ class SpeculativeConfig:
+     E4M3 scale per 16 weights. The dynamic rows' scorer is then stored in fp8.
+     Only the acceptance length can change. Requires `draft_token_map`."""
+ 
++    draft_token_map_max_rows: int | None = Field(default=None, ge=1)
++    """Use the `draft_token_map` head only for draft
++    steps with at most this many rows (one per running request), and the
++    drafter's other head above it. Its dynamic rows cost time per row, so they
++    can pay with one request and not with six. None uses it at every batch size.
++    Requires `draft_token_map` and a drafter that keeps a second head."""
++
+     # Ngram proposer configuration
+     prompt_lookup_max: int | None = Field(default=None, ge=1)
+     """Maximum size of ngram token window when using Ngram proposer, required
+@@ -1954,6 +1961,9 @@ class SpeculativeConfig:
+                 "require draft_token_map."
+             )
+ 
++        if self.draft_token_map is None and self.draft_token_map_max_rows is not None:
++            raise ValueError("draft_token_map_max_rows requires draft_token_map.")
++
+         if self.draft_token_map is not None and self.method != "mtp":
+             raise ValueError(
+                 f"draft_token_map requires method 'mtp', got {self.method!r}."
+diff --git a/vllm/models/qwen4_exp/nvidia/mtp.py b/vllm/models/qwen4_exp/nvidia/mtp.py
+index 2f1bc972..6f8e6b97 100644
+--- a/vllm/models/qwen4_exp/nvidia/mtp.py
++++ b/vllm/models/qwen4_exp/nvidia/mtp.py
+@@ -494,8 +494,11 @@ class Qwen4ExpMTP(
+     def compute_logits(
+         self, hidden_states: torch.Tensor, spec_step_idx: int = 0
+     ) -> torch.Tensor | None:
+-        # Vllm#59740: a draft_token_map replaces the reduced vocabulary.
+-        if self.draft_vocab.token_ids is not None:
++        # Vllm#59740: a draft_token_map replaces the reduced vocabulary,
++        # Up to draft_token_map_max_rows rows per step when that is set.
++        if self.draft_vocab.token_ids is not None and self._use_token_map(
++            hidden_states.shape[0]
++        ):
+             return self.draft_vocab.compute_logits(self.lm_head, hidden_states)
+         # A full-vocabulary draft head this drafter quantized itself
+         # runs through the reduced-vocabulary path with k = the whole vocabulary.
+@@ -586,6 +589,30 @@ class Qwen4ExpMTP(
+             quantization,
+         )
+ 
++    # --- the draft head per batch size
++    def _use_token_map(self, rows: int) -> bool:
++        """Whether a draft step of `rows` rows uses the draft_token_map head.
++
++        Above draft_token_map_max_rows the step falls through to the reduced
++        vocabulary head (QWEN4EXP_DRAFT_VOCAB rows, quantized by
++        draft_lm_head_quantization). `rows` is the padded batch inside a CUDA
++        graph, so each captured size takes one branch for good.
++        """
++        spec = getattr(self.vllm_config, "speculative_config", None)
++        limit = getattr(spec, "draft_token_map_max_rows", None)
++        use = limit is None or rows <= limit
++        seen = self.__dict__.setdefault("_token_map_rows_logged", set())
++        if limit is not None and rows not in seen:
++            seen.add(rows)
++            from vllm.logger import init_logger
++
++            init_logger(__name__).info(
++                "QWEN38 draft head for %d rows: %s",
++                rows,
++                "draft_token_map" if use else f"reduced vocabulary ({_draft_vocab_size()})",
++            )
++        return use
++
+     # --- vllm#59740 draft_token_map on a block-FP8 shared head
+     def draft_token_map_head(self):
+         """The head vllm#59740's DraftVocab copies its rows from.
+@@ -606,8 +633,11 @@ class Qwen4ExpMTP(
+         if isinstance(head.quant_method, UnquantizedEmbeddingMethod):
+             return head
+         vocab = int(self.config.vocab_size)
++        # Keep the reduced head's cache (with draft_token_map_max_rows
++        # both heads serve); quantize_draft_rows left it without BF16 rows.
++        kept = getattr(self, "_draft_vocab_cache", None)
+         _, _, lo, hi, w = self._draft_rows(vocab)
+-        self._draft_vocab_cache = None  # do not keep a full BF16 copy resident
++        self._draft_vocab_cache = kept  # do not keep a full BF16 copy resident
+         if w is None or lo != 0 or hi != vocab:
+             raise ValueError(
+                 "draft_token_map on a quantized shared lm_head needs tensor "

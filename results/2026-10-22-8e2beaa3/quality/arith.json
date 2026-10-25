@@ -1,0 +1,67 @@
+{
+  "probe": "twelve-item no-CoT arithmetic",
+  "passed": 12,
+  "total": 12,
+  "items": {
+    "1000 * (1.05)^3": {
+      "want": 1157.63,
+      "got": "1157.625",
+      "pass": true
+    },
+    "847 + 1596": {
+      "want": 2443,
+      "got": "2443",
+      "pass": true
+    },
+    "73 * 89": {
+      "want": 6497,
+      "got": "6497",
+      "pass": true
+    },
+    "2^17": {
+      "want": 131072,
+      "got": "131072",
+      "pass": true
+    },
+    "15% of 3240": {
+      "want": 486,
+      "got": "486",
+      "pass": true
+    },
+    "(456 + 789) * 2": {
+      "want": 2490,
+      "got": "2490",
+      "pass": true
+    },
+    "9876 / 12": {
+      "want": 823,
+      "got": "823",
+      "pass": true
+    },
+    "The sum of the first 30 positive integers": {
+      "want": 465,
+      "got": "465",
+      "pass": true
+    },
+    "144 * 144": {
+      "want": 20736,
+      "got": "20736",
+      "pass": true
+    },
+    "5000 * (1.03)^2": {
+      "want": 5304.5,
+      "got": "5304.5",
+      "pass": true
+    },
+    "The number of minutes between 09:47 and 14:12": {
+      "want": 265,
+      "got": "265",
+      "pass": true
+    },
+    "38 * 47 - 500": {
+      "want": 1286,
+      "got": "1286",
+      "pass": true
+    }
+  }
+}

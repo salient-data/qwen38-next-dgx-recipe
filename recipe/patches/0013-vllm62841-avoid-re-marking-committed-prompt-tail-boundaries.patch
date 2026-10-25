@@ -1,0 +1,20 @@
+Patch 0013-vllm62841-avoid-re-marking-committed-prompt-tail-boundaries.patch for vLLM, base commit 8e2beaa3bff595577a069d49d96bde9074294ec2 (vllm/vllm-openai:nightly-8e2beaa3bff595577a069d49d96bde9074294ec2).
+What: Avoid re-marking committed prompt-tail boundaries as cached this step
+Upstream: https://github.com/vllm-project/vllm/pull/62841 by @khyun1109 (merged after this build's base), ported at head eca59b6b (PR now at e1e0221d); cherry-picked unchanged (test files dropped).
+This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
+
+diff --git a/vllm/v1/core/single_type_kv_cache_manager.py b/vllm/v1/core/single_type_kv_cache_manager.py
+index 2369eac7..61501ef0 100644
+--- a/vllm/v1/core/single_type_kv_cache_manager.py
++++ b/vllm/v1/core/single_type_kv_cache_manager.py
+@@ -2102,6 +2102,10 @@ class MambaManager(SingleTypeKVCacheManager):
+         source_block = blocks[block_idx]
+         if source_block.is_null:
+             return None
++        # Already keyed here by a hit or an earlier step; re-caching would
++        # mark it cached this step and defer every sibling that hits it.
++        if source_block.block_hash_num_tokens == num_tokens:
++            return None
+ 
+         partial_hash = self.block_pool.cache_partial_block(
+             request=request,
