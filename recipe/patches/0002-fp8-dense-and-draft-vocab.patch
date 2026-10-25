@@ -1,10 +1,10 @@
-Patch 0002-fp8-dense-and-draft-vocab.patch for vLLM, base commit 77154ca6116ae34cbfe314beef1016bde9b63989 (vllm/vllm-openai:nightly-77154ca6116ae34cbfe314beef1016bde9b63989).
+Patch 0002-fp8-dense-and-draft-vocab.patch for vLLM, base commit 8e2beaa3bff595577a069d49d96bde9074294ec2 (vllm/vllm-openai:nightly-8e2beaa3bff595577a069d49d96bde9074294ec2).
 What: QWEN38_FP8_DENSE casts the checkpoint's BF16 dense linears (GDN, QSA, shared experts, MTP dense, lm_head) to 128x128 block FP8 at load (197 linears); QWEN4EXP_DRAFT_VOCAB limits MTP drafting to token ids below 65,536; keeps the QSA indexer projection unfused so its rows stay BF16.
 Upstream: no vLLM PR. FP8-dense cast and indexer handling written for this recipe; the reduced-vocabulary drafting ports tonyd2wild's mtp_draft_vocab.py (Tony DeAngelo, Tech2Wild / 2Wild, Apache-2.0; https://github.com/tonyd2wild/Qwen3.8-Flash-Next-NVFP4-DGX-Spark @ 6ad1c8f), credited in the code as 'Kai / 2Wild'.
 This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
 
 diff --git a/vllm/model_executor/layers/quantization/modelopt.py b/vllm/model_executor/layers/quantization/modelopt.py
-index 8354f88..9d41a99 100644
+index d6804f38..5717c534 100644
 --- a/vllm/model_executor/layers/quantization/modelopt.py
 +++ b/vllm/model_executor/layers/quantization/modelopt.py
 @@ -1,6 +1,8 @@
@@ -16,7 +16,7 @@ index 8354f88..9d41a99 100644
  from collections.abc import Callable
  from dataclasses import dataclass
  from enum import Enum
-@@ -1540,6 +1542,61 @@ ModelOptMxFp8Config.FusedMoEMethodCls = ModelOptMxFp8FusedMoE
+@@ -1559,6 +1561,61 @@ ModelOptMxFp8Config.FusedMoEMethodCls = ModelOptMxFp8FusedMoE
  ModelOptMxFp8Config.KVCacheMethodCls = ModelOptKVCacheMethod
  
  
@@ -78,7 +78,7 @@ index 8354f88..9d41a99 100644
  class ModelOptMixedPrecisionConfig(ModelOptQuantConfigBase):
      """Config class for ModelOpt MIXED_PRECISION.
  
-@@ -1823,7 +1880,7 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfigBase):
+@@ -1842,7 +1899,7 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfigBase):
          # Excluded layers
          if self.is_layer_excluded(prefix):
              if isinstance(layer, (LinearBase, ParallelLMHead)):
@@ -87,7 +87,7 @@ index 8354f88..9d41a99 100644
              return None
  
          quant_algo = self._resolve_quant_algo(prefix)
-@@ -1851,7 +1908,7 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfigBase):
+@@ -1870,7 +1927,7 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfigBase):
              # the MoE method that shares the sub-config.
              if quant_algo is None or quant_algo not in LINEAR_ALGOS:
                  # Layer not in quantized_layers — leave unquantized
@@ -97,10 +97,10 @@ index 8354f88..9d41a99 100644
              return build_linear_method(getattr(self, subcfg_attr), quant_algo, prefix)
  
 diff --git a/vllm/models/qwen4_exp/nvidia/model.py b/vllm/models/qwen4_exp/nvidia/model.py
-index 2fb056b..47056c4 100644
+index 826db4ef..01673e83 100644
 --- a/vllm/models/qwen4_exp/nvidia/model.py
 +++ b/vllm/models/qwen4_exp/nvidia/model.py
-@@ -734,9 +734,20 @@ class Qwen4ExpForCausalLM(
+@@ -727,9 +727,20 @@ class Qwen4ExpForCausalLM(
          self.model = Qwen4ExpModel(
              vllm_config=vllm_config, prefix=maybe_prefix(prefix, "model")
          )
@@ -122,7 +122,7 @@ index 2fb056b..47056c4 100644
          )
          self.logits_processor = LogitsProcessor(config.vocab_size)
 diff --git a/vllm/models/qwen4_exp/nvidia/mtp.py b/vllm/models/qwen4_exp/nvidia/mtp.py
-index 32e95fa..2ff4709 100644
+index e9aa8765..863a65dd 100644
 --- a/vllm/models/qwen4_exp/nvidia/mtp.py
 +++ b/vllm/models/qwen4_exp/nvidia/mtp.py
 @@ -1,4 +1,13 @@
@@ -280,7 +280,7 @@ index 32e95fa..2ff4709 100644
      def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
          def remap_weight_names():
 diff --git a/vllm/models/qwen4_exp/nvidia/qsa.py b/vllm/models/qwen4_exp/nvidia/qsa.py
-index 9fb3667..7cdb1af 100644
+index f82cca1c..1d75cfec 100644
 --- a/vllm/models/qwen4_exp/nvidia/qsa.py
 +++ b/vllm/models/qwen4_exp/nvidia/qsa.py
 @@ -130,6 +130,13 @@ class Qwen4ExpQSAQKVIndexerLinear(MergedColumnParallelLinear):
@@ -294,7 +294,7 @@ index 9fb3667..7cdb1af 100644
 +    return "attn" in groups
 +
 +
- def qsa_kv_cache_dtype(cache_config: CacheConfig, prefix: str) -> CacheDType:
+ def qsa_kv_cache_dtype(cache_config: CacheConfig, prefix: str) -> CacheDType | str:
      """The layer's KV cache dtype, honoring ``--kv-cache-dtype-skip-layers``."""
      if str(extract_layer_index(prefix)) in cache_config.kv_cache_dtype_skip_layers:
 @@ -505,7 +512,13 @@ class Qwen4ExpQSAAttention(Qwen3NextAttention, AttentionLayerBase):

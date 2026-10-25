@@ -1,14 +1,14 @@
 # Memory on one DGX Spark
 
-Measured on build `2026-10-14-77154ca6` (see `results/`), on two boots of the same image.
+Measured on build `2026-10-22-8e2beaa3` on four boots on 2026-10-25: three of the prod image, one of an image built with `build.sh` (the vLLM log lines are in `results/2026-10-22-8e2beaa3/boots-2026-10-25.txt`).
 
 | | |
 |---|---|
 | Checkpoint on disk | 123.6 GiB (vLLM's own count at load) |
 | PLE n-gram embedding tables inside it | 51.2 GB, FP8 E4M3 with a per-table scale |
 | Spark memory, CPU and GPU together | 121 GiB, one unified pool |
-| Weights resident after load (vLLM's "Model loading took") | 73.51 GiB |
-| KV cache after load, at `--gpu-memory-utilization 0.80` | 14.97-15.85 GiB = 981,604-1,039,008 tokens on two boots (fp8; aggregate across requests) |
+| Weights resident after load (vLLM's "Model loading took") | 73.57 GiB |
+| KV cache after load, at `--gpu-memory-utilization 0.80` | 1,002,985-1,094,166 tokens on four boots (fp8; aggregate across requests) |
 | Container memory cap (`--memory`) | 112 GiB |
 
 ## Why it fits
@@ -32,12 +32,12 @@ result in this repo carries a GSM8K score and `verify.sh` asks two questions wit
 
 - Start from a quiet machine: about 100 GiB free (`free -g`). Other GPU work, a desktop session with large
   browser tabs, or another inference server will make the load fail or the KV pool smaller.
-- Loading took about 5-6 minutes on our Spark, from the first log line to a server that answers: the weight load
-  about 120 s ("Loading weights took 124.52 seconds"; "Model loading took 73.51 GiB memory and 153.07 seconds",
-  drafter included), then the KV cache profile, CUDA graph capture and warm-up. Patch `0014` reads the routed experts
+- Loading took about 6 minutes on our Spark (350-371 s on the three prod boots), from the start to a server that answers: the
+  weight load about 120 s from a cold page cache ("Loading weights took 118.66 seconds"; "Model loading took 73.57 GiB memory and 150.56 seconds",
+  drafter included), then the KV cache profile, CUDA graph capture and warm-up. The `moe-batched-load` patch reads the routed experts
   in large parallel reads; with it off (`QWEN38_BATCHED_LOAD=0`) the weight load runs on one CPU core and takes about
   450-540 s. A larger disk read-ahead (8192 KB rather than the distro's 128 KB) shortened cold loads on earlier
-  builds; it has not been re-measured with patch `0014`.
+  builds; it has not been re-measured with that patch.
 - NVIDIA's DGX Spark playbooks suggest flushing the page cache if you hit memory errors that should not happen:
   `sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`. The first load after that is slower.
 - `nvidia-smi --query-gpu=memory.*` reports N/A on GB10; use `free -g` and the vLLM log lines above.

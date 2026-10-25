@@ -1,10 +1,10 @@
-Patch 0011-skinny-gemm-rows.patch for vLLM, base commit 77154ca6116ae34cbfe314beef1016bde9b63989 (vllm/vllm-openai:nightly-77154ca6116ae34cbfe314beef1016bde9b63989).
+Patch 0009-skinny-gemm-rows.patch for vLLM, base commit 8e2beaa3bff595577a069d49d96bde9074294ec2 (vllm/vllm-openai:nightly-8e2beaa3bff595577a069d49d96bde9074294ec2).
 What: Plans the SM121 skinny BF16 GEMM for every row count up to its maximum, not only 1, 2, 4, 8 and 16, so a 5- or 7-row speculative verify no longer falls back to a slower generic kernel (QWEN38_SKINNY_FILL=0 turns it off).
 Upstream: no vLLM PR. written for this recipe.
 This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
 
 diff --git a/vllm/models/qwen4_exp/nvidia/low_latency_gemm.py b/vllm/models/qwen4_exp/nvidia/low_latency_gemm.py
-index ea56750..fb03cf3 100644
+index ea567507..fb03cf3c 100644
 --- a/vllm/models/qwen4_exp/nvidia/low_latency_gemm.py
 +++ b/vllm/models/qwen4_exp/nvidia/low_latency_gemm.py
 @@ -299,6 +299,26 @@ QWEN4_EXP_SM121_GEMM_PLANS: dict[tuple[int, int], dict[int, SkinnyGemmConfig]] =
@@ -12,7 +12,7 @@ index ea56750..fb03cf3 100644
  
  
 +def _qwen38_fill_row_gaps(plans: dict[tuple[int, int], dict[int, SkinnyGemmConfig]]) -> None:
-+    # the plans cover 1, 2, 4, 8 and 16 rows, but a verify step at one request with k=4
++    # The plans cover 1, 2, 4, 8 and 16 rows, but a verify step at one request with k=4
 +    # has 5 rows (and the k=3 schedule 12, 20 or 24 at 3, 5 or 6 requests), so those steps fell back to
 +    # F.linear and cuBLAS's SM80 WMMA kernel. Fill every row count up to the largest planned one with the
 +    # next larger plan's tuning at the exact row count. QWEN38_SKINNY_FILL=0 turns this off.

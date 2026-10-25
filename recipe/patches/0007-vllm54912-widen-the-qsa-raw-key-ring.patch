@@ -1,10 +1,10 @@
-Patch 0009-vllm54912-widen-the-qsa-raw-key-ring.patch for vLLM, base commit 77154ca6116ae34cbfe314beef1016bde9b63989 (vllm/vllm-openai:nightly-77154ca6116ae34cbfe314beef1016bde9b63989).
+Patch 0007-vllm54912-widen-the-qsa-raw-key-ring.patch for vLLM, base commit 8e2beaa3bff595577a069d49d96bde9074294ec2 (vllm/vllm-openai:nightly-8e2beaa3bff595577a069d49d96bde9074294ec2).
 What: Widen the QSA raw-key ring instead of asserting divisibility
 Upstream: https://github.com/vllm-project/vllm/pull/54912 by @jschmied (open), ported at head 77b5ae7e; ported by hand onto this series (context only).
 This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
 
 diff --git a/vllm/models/qwen4_exp/common/qsa_cache.py b/vllm/models/qwen4_exp/common/qsa_cache.py
-index f960dea..35f271e 100644
+index 5eba092e..9a282ac6 100644
 --- a/vllm/models/qwen4_exp/common/qsa_cache.py
 +++ b/vllm/models/qwen4_exp/common/qsa_cache.py
 @@ -21,6 +21,7 @@ from torch import nn
@@ -80,7 +80,7 @@ index f960dea..35f271e 100644
  class QSAKeyStateCache(_QSAStateCache):
      """Raw BF16 key, optionally followed by exact int64 MRoPE positions."""
  
-@@ -842,16 +894,10 @@ class QSAKeyStateCache(_QSAStateCache):
+@@ -840,16 +892,10 @@ class QSAKeyStateCache(_QSAStateCache):
          return self.kv_cache[..., self.rope_position_offset :].view(torch.int64)
  
      def get_kv_cache_spec(self, vllm_config: VllmConfig) -> KVCacheSpec:
@@ -90,7 +90,7 @@ index f960dea..35f271e 100644
 -        # the scheduler block size). Anything narrower lets a rejected draft row
 -        # overwrite a committed key the next step needs to close the group.
 -        span = self.compress_ratio + vllm_config.num_speculative_tokens
--        capacity = self.compress_ratio * cdiv(span, self.compress_ratio)
+-        capacity = round_up(span, self.compress_ratio)
 -        assert self.cache_config.block_size % capacity == 0, (
 -            f"QSA ring capacity {capacity} must divide the attention block "
 -            f"size {self.cache_config.block_size}"

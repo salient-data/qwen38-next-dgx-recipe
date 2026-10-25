@@ -35,4 +35,4 @@ fp8_e4m3
 bfloat16
 --enable-prefix-caching
 --speculative-config
-{"method": "mtp", "num_speculative_tokens": 6, "draft_confidence_threshold": 0.7, "draft_confidence_fallback_depth": 3, "draft_token_map": "/root/.cache/draft-token-maps/d22ff5232d12f6935add32541a2a447976349217e5b125669fab0e92e3e2a20b.json", "draft_token_map_dynamic_rows": 16384, "draft_token_map_dynamic_rank": 256, "draft_token_map_quantization": "nvfp4"}
+{"method": "mtp", "num_speculative_tokens": 6, "draft_lm_head_quantization": "nvfp4", "draft_confidence_threshold": 0.7, "draft_confidence_fallback_depth": 3, "draft_token_map": "/root/.cache/draft-token-maps/d22ff5232d12f6935add32541a2a447976349217e5b125669fab0e92e3e2a20b.json", "draft_token_map_dynamic_rows": 16384, "draft_token_map_dynamic_rank": 256, "draft_token_map_quantization": "nvfp4", "draft_token_map_max_rows": 1}

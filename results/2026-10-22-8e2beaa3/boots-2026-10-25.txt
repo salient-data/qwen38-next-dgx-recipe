@@ -1,0 +1,32 @@
+vLLM log lines from four boots of build 2026-10-22-8e2beaa3 on 2026-10-25 (one DGX Spark).
+A, C, D: prod image via ./recipe/qfn up (A after dropping the page cache); B: image built by ./recipe/build.sh, started with ./recipe/qfn dev --detach.
+
+== boot A
+INFO 10-25 19:22:03 [default_loader.py:501] Loading weights took 118.66 seconds
+INFO 10-25 19:22:27 [default_loader.py:501] Loading weights took 20.67 seconds
+INFO 10-25 19:22:31 [model_runner.py:431] Model loading took 73.57 GiB memory and 150.562744 seconds
+INFO 10-25 19:24:14 [gpu_worker.py:763] Available KV cache memory: 16.13 GiB
+INFO 10-25 19:24:14 [kv_cache_utils.py:1101] GPU KV cache size: 1,025,780 tokens, Maximum concurrency for 262,144 tokens per request: 3.91x
+
+== boot C
+INFO 10-25 19:40:27 [default_loader.py:501] Loading weights took 110.39 seconds
+INFO 10-25 19:40:47 [default_loader.py:501] Loading weights took 17.95 seconds
+INFO 10-25 19:40:51 [model_runner.py:431] Model loading took 73.57 GiB memory and 139.336516 seconds
+INFO 10-25 19:42:33 [kv_cache_utils.py:1101] GPU KV cache size: 1,004,885 tokens, Maximum concurrency for 262,144 tokens per request: 3.83x
+
+== boot B
+INFO 10-25 19:29:09 [default_loader.py:501] Loading weights took 118.93 seconds
+INFO 10-25 19:29:33 [default_loader.py:501] Loading weights took 20.91 seconds
+INFO 10-25 19:29:36 [model_runner.py:431] Model loading took 73.57 GiB memory and 150.477889 seconds
+INFO 10-25 19:30:30 [kv_cache_utils.py:1101] GPU KV cache size: 1,094,166 tokens, Maximum concurrency for 262,144 tokens per request: 4.17x
+
+== boot D
+INFO 10-25 19:46:44 [default_loader.py:501] Loading weights took 123.55 seconds
+INFO 10-25 19:47:08 [default_loader.py:501] Loading weights took 21.01 seconds
+INFO 10-25 19:47:12 [model_runner.py:431] Model loading took 73.57 GiB memory and 155.853428 seconds
+INFO 10-25 19:48:55 [kv_cache_utils.py:1101] GPU KV cache size: 1,002,985 tokens, Maximum concurrency for 262,144 tokens per request: 3.83x
+
+== time to answer, as printed by ./recipe/qfn up
+A: answering after 370 s
+C: answering after 350 s
+D: answering after 371 s

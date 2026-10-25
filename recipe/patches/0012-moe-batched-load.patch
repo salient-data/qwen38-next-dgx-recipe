@@ -1,17 +1,17 @@
-Patch 0014-moe-batched-load.patch for vLLM, base commit 77154ca6116ae34cbfe314beef1016bde9b63989 (vllm/vllm-openai:nightly-77154ca6116ae34cbfe314beef1016bde9b63989).
+Patch 0012-moe-batched-load.patch for vLLM, base commit 8e2beaa3bff595577a069d49d96bde9074294ec2 (vllm/vllm-openai:nightly-8e2beaa3bff595577a069d49d96bde9074294ec2).
 What: Reads the routed experts' weights from the checkpoint in large parallel preadv calls into fresh tensors, in the same order and with the same bytes, instead of copying each expert out of the memory map a page at a time; a cold boot's weight load drops from about 450-540 s to about 120 s with identical served text (QWEN38_BATCHED_LOAD=0 turns it off). The design follows TensorFold's loader (merged large reads).
 Upstream: no vLLM PR. written for this recipe.
 This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
 
 diff --git a/vllm/model_executor/layers/fused_moe/routed_experts.py b/vllm/model_executor/layers/fused_moe/routed_experts.py
-index 71f4206..e5023b2 100644
+index 7b5fff06..813fff53 100644
 --- a/vllm/model_executor/layers/fused_moe/routed_experts.py
 +++ b/vllm/model_executor/layers/fused_moe/routed_experts.py
 @@ -39,6 +39,34 @@ if TYPE_CHECKING:
  
  logger = init_logger(__name__)
  
-+# : QWEN38_PINNED_EXPERT_COPY=1 stages each host-to-device
++# QWEN38_PINNED_EXPERT_COPY=1 stages each host-to-device
 +# expert copy through one reusable pinned buffer, so the CUDA copy reads pinned
 +# memory instead of a pageable (possibly file-backed) source. The copy stays
 +# synchronous, so the buffer is free again when copy_ returns. Same bytes.
@@ -42,7 +42,7 @@ index 71f4206..e5023b2 100644
  
  def _index_expert_mapping(
      mapping: list[tuple[str, str, int, str]],
-@@ -569,7 +597,7 @@ class RoutedExperts(PluggableLayer):
+@@ -575,7 +603,7 @@ class RoutedExperts(PluggableLayer):
              hidden_dim=hidden_dim,
              shard_dim=shard_dim,
          )
@@ -51,7 +51,7 @@ index 71f4206..e5023b2 100644
  
      def _load_w2(
          self,
-@@ -620,7 +648,7 @@ class RoutedExperts(PluggableLayer):
+@@ -626,7 +654,7 @@ class RoutedExperts(PluggableLayer):
              ):
                  dst.copy_(src)
              return
@@ -61,7 +61,7 @@ index 71f4206..e5023b2 100644
      def _load_single_value(
          self, param: torch.nn.Parameter, loaded_weight: torch.Tensor, expert_id: int
 diff --git a/vllm/model_executor/model_loader/weight_utils.py b/vllm/model_executor/model_loader/weight_utils.py
-index 0a834cd..a41d3bf 100644
+index ed3ed947..d19448ee 100644
 --- a/vllm/model_executor/model_loader/weight_utils.py
 +++ b/vllm/model_executor/model_loader/weight_utils.py
 @@ -3,6 +3,7 @@
@@ -72,7 +72,7 @@ index 0a834cd..a41d3bf 100644
  import concurrent.futures
  import fnmatch
  import glob
-@@ -1206,11 +1207,121 @@ def safetensors_weights_iterator(
+@@ -1242,11 +1243,121 @@ def safetensors_weights_iterator(
              yield from unflattened_state_dict.items()
          else:
              with safe_open(st_file, framework="pt") as f:
@@ -97,9 +97,9 @@ index 0a834cd..a41d3bf 100644
 +                        yield name, param
 +
 +
-+# : read routed-expert tensors with large preadv calls on a
++# Read routed-expert tensors with large preadv calls on a
 +# thread pool instead of handing FusedMoE views of the shard's mmap. On GB10 the
-+# per-expert copy_ from the mmap ran at ~214 MB/s on one core ( profile:
++# Per-expert copy_ from the mmap ran at ~214 MB/s on one core (profile:
 +# 74% of the engine core's load time). The bytes, names and yield order are
 +# unchanged; every other tensor still comes from safe_open lazily, so tensors the
 +# model drops (the PLE tables under host_file_gather) are never read.

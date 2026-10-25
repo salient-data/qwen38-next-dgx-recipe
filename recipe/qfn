@@ -20,7 +20,7 @@
 #   ./qfn upgrade            git checkout main && git pull, then pull the new image (or rebuild it if none is published)
 #   ./qfn help
 #
-# Both paths use the same serve.args and serve.env and the same serving code (AST-identical, checked at publish time). Environment knobs are those of
+# Both paths use the same serve.args and serve.env and the same serving code (the same Python AST, docstring text aside, checked at publish time). Environment knobs are those of
 # launch.sh (BIND, PORT, NAME, MODEL_DIR, CACHE_DIR, WARMUP, MEMWATCH, FORCE, VLLM_API_KEY, MIN_FREE_GIB).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"; cd "$here"; source ./pins.env; source ./prod-image.sh

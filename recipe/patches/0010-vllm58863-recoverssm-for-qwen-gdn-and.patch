@@ -1,13 +1,13 @@
-Patch 0012-vllm58863-recoverssm-for-qwen-gdn-and.patch for vLLM, base commit 77154ca6116ae34cbfe314beef1016bde9b63989 (vllm/vllm-openai:nightly-77154ca6116ae34cbfe314beef1016bde9b63989).
+Patch 0010-vllm58863-recoverssm-for-qwen-gdn-and.patch for vLLM, base commit 8e2beaa3bff595577a069d49d96bde9074294ec2 (vllm/vllm-openai:nightly-8e2beaa3bff595577a069d49d96bde9074294ec2).
 What: RecoverSSM for Qwen GDN and the PLE short conv
-Upstream: https://github.com/vllm-project/vllm/pull/58863 by @jschmied (open), ported at head 95ba23f5 (PR now at 7f7b3295); ported by hand onto this series.
+Upstream: https://github.com/vllm-project/vllm/pull/58863 by @jschmied (open), ported at head 95ba23f5 (PR now at 3694757f); ported by hand onto this series.
 This file modifies vLLM (Apache-2.0); the vLLM copyright and SPDX lines in the files it changes are kept.
 
 diff --git a/vllm/config/cache.py b/vllm/config/cache.py
-index 9bb7166..4b40b45 100644
+index af62f105..96719058 100644
 --- a/vllm/config/cache.py
 +++ b/vllm/config/cache.py
-@@ -210,7 +210,7 @@ class CacheConfig:
+@@ -323,7 +323,7 @@ class CacheConfig:
      prefix caching yet. Mamba2 speculative decode requires FlashInfer. With
      prefix caching, flushes are most efficient when mamba_block_size is a
      multiple of replayssm_buffer_len, but this is not required."""
@@ -17,7 +17,7 @@ index 9bb7166..4b40b45 100644
  
      # Will be set after profiling.
 diff --git a/vllm/config/compilation.py b/vllm/config/compilation.py
-index 395b6e2..c431356 100644
+index 395b6e2c..c4313568 100644
 --- a/vllm/config/compilation.py
 +++ b/vllm/config/compilation.py
 @@ -1428,10 +1428,15 @@ class CompilationConfig:
@@ -41,7 +41,7 @@ index 395b6e2..c431356 100644
                      "; setting cudagraph_mode=PIECEWISE because "
                      "attention is compiled piecewise"
 diff --git a/vllm/config/vllm.py b/vllm/config/vllm.py
-index 95b1ec7..c15a34b 100644
+index 321a5149..eb15d5d8 100644
 --- a/vllm/config/vllm.py
 +++ b/vllm/config/vllm.py
 @@ -71,6 +71,13 @@ else:
@@ -57,8 +57,8 @@ index 95b1ec7..c15a34b 100644
 +
  DEFAULT_BREAKABLE_CUDAGRAPH_ARCHITECTURES = frozenset(
      {
-         "DeepseekV32MTPModel",
-@@ -3374,22 +3381,23 @@ class VllmConfig:
+         "AliceAIForCausalLM",
+@@ -3439,22 +3446,23 @@ class VllmConfig:
      @model_validator(mode="after")
      def validate_mamba_cached_kernel(self) -> "VllmConfig":
          if not self.cache_config.use_replayssm:
@@ -89,7 +89,7 @@ index 95b1ec7..c15a34b 100644
          )
  
          if self.model_config is not None and not self.model_config.supports_replayssm:
-@@ -3397,6 +3405,17 @@ class VllmConfig:
+@@ -3462,6 +3470,17 @@ class VllmConfig:
                  "--use-replayssm is not supported for architecture "
                  f"{self.model_config.architecture!r}"
              )
@@ -107,7 +107,7 @@ index 95b1ec7..c15a34b 100644
          if (
              self.mamba_config.backend == MambaBackendEnum.FLASHINFER
              and self.cache_config.replayssm_buffer_len > 16
-@@ -3404,7 +3423,7 @@ class VllmConfig:
+@@ -3469,7 +3488,7 @@ class VllmConfig:
              raise ValueError(
                  "FlashInfer ReplaySSM requires --replayssm-buffer-len <= 16"
              )
@@ -117,10 +117,10 @@ index 95b1ec7..c15a34b 100644
                  raise ValueError(
                      "RecoverSSM supports bfloat16/float32 "
 diff --git a/vllm/model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py b/vllm/model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py
-index 516ef13..345fc0d 100644
+index 121dcb9d..f7f055e3 100644
 --- a/vllm/model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py
 +++ b/vllm/model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py
-@@ -452,10 +452,15 @@ class ChunkGatedDeltaRule(CustomOp):
+@@ -525,10 +525,15 @@ class ChunkGatedDeltaRule(CustomOp):
  
  @PluggableLayer.register("qwen_gated_delta_net_attention")
  class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
@@ -140,7 +140,7 @@ index 516ef13..345fc0d 100644
              self.tp_size,
              self.num_k_heads,
              self.num_v_heads,
-@@ -464,6 +469,32 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
+@@ -537,6 +542,32 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
              self.conv_kernel_size,
              self.num_spec,
          )
@@ -173,7 +173,7 @@ index 516ef13..345fc0d 100644
  
      def __init__(
          self,
-@@ -616,6 +647,17 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
+@@ -708,6 +739,17 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
          self.enable_fused_gdn_spec_decode = (
              self.gdn_decode_kernel == "cuda" and self.speculative_config is not None
          )
@@ -191,7 +191,7 @@ index 516ef13..345fc0d 100644
          if self.speculative_config is not None:
              logger.info_once("GDN spec decode kernel: %s", self.gdn_decode_kernel)
  
-@@ -627,7 +669,7 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
+@@ -762,7 +804,7 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
      def _fused_gdn_decode_unsupported_reason(
          self, vllm_config: VllmConfig
      ) -> str | None:
@@ -200,7 +200,7 @@ index 516ef13..345fc0d 100644
          if (
              self.gqa_interleaved_layout
              or self.head_k_dim != 128
-@@ -887,6 +929,25 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
+@@ -1022,6 +1064,25 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
  
          return mixed_qkv_out, z_out, b_out, a_out
  
@@ -226,7 +226,7 @@ index 516ef13..345fc0d 100644
      def rearrange_mixed_qkv(self, mixed_qkv):
          """Split packed qkv into contiguous (1, seq, heads, dim) tensors.
  
-@@ -1172,7 +1233,7 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
+@@ -1324,7 +1385,7 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
          dtype = qkv_or_qkvz.dtype
          num_k_heads = self.num_k_heads // self.tp_size
          num_v_heads = self.num_v_heads // self.tp_size
@@ -235,7 +235,7 @@ index 516ef13..345fc0d 100644
  
          # All kernels use BT = chunk_size, so a single pass with T = chunk_size
          # is sufficient to populate every autotuner cache. Mirror the real
-@@ -1438,7 +1499,11 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
+@@ -1636,7 +1697,11 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
                  ],
                  num_accepted_tokens=num_accepted_tokens,
                  query_start_loc=spec_query_start_loc,
@@ -248,7 +248,7 @@ index 516ef13..345fc0d 100644
                  validate_data=False,
              )
  
-@@ -1475,7 +1540,17 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
+@@ -1674,7 +1739,17 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
          else:
              mixed_qkv_non_spec = None
  
@@ -267,7 +267,7 @@ index 516ef13..345fc0d 100644
  
          # Split mixed non-spec-decode+prefill to process independently
          split_non_spec = (
-@@ -1538,7 +1613,43 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
+@@ -1737,7 +1812,43 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
          # 2. Recurrent attention
  
          # 2.1: Process the multi-query part
@@ -312,7 +312,7 @@ index 516ef13..345fc0d 100644
              core_attn_out_spec, last_recurrent_state = (
                  fused_sigmoid_gating_delta_rule_update(
                      A_log=self.A_log,
-@@ -1654,7 +1765,8 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
+@@ -1889,7 +2000,8 @@ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
                  0, non_spec_token_indx, core_attn_out_non_spec.squeeze(0)
              )
          elif spec_sequence_masks is not None:
@@ -324,7 +324,7 @@ index 516ef13..345fc0d 100644
  
 diff --git a/vllm/model_executor/layers/mamba/gdn/recoverssm_gdn.py b/vllm/model_executor/layers/mamba/gdn/recoverssm_gdn.py
 new file mode 100644
-index 0000000..5846049
+index 00000000..58460492
 --- /dev/null
 +++ b/vllm/model_executor/layers/mamba/gdn/recoverssm_gdn.py
 @@ -0,0 +1,702 @@
@@ -1032,7 +1032,7 @@ index 0000000..5846049
 +__all__ = ["GDNRecoverSSMCommitContext", "gdn_recoverssm_verify"]
 diff --git a/vllm/model_executor/layers/mamba/ops/recoverssm.py b/vllm/model_executor/layers/mamba/ops/recoverssm.py
 new file mode 100644
-index 0000000..9379688
+index 00000000..9379688f
 --- /dev/null
 +++ b/vllm/model_executor/layers/mamba/ops/recoverssm.py
 @@ -0,0 +1,200 @@
@@ -1238,7 +1238,7 @@ index 0000000..9379688
 +]
 diff --git a/vllm/model_executor/layers/mamba/recoverssm_utils.py b/vllm/model_executor/layers/mamba/recoverssm_utils.py
 new file mode 100644
-index 0000000..fd41eca
+index 00000000..fd41eca2
 --- /dev/null
 +++ b/vllm/model_executor/layers/mamba/recoverssm_utils.py
 @@ -0,0 +1,37 @@
@@ -1280,10 +1280,10 @@ index 0000000..fd41eca
 +
 +__all__ = ["recoverssm_ptr_table", "recoverssm_require", "uses_recoverssm"]
 diff --git a/vllm/model_executor/models/interfaces.py b/vllm/model_executor/models/interfaces.py
-index a780cbe..b0bfdba 100644
+index 818c1610..4fd3be08 100644
 --- a/vllm/model_executor/models/interfaces.py
 +++ b/vllm/model_executor/models/interfaces.py
-@@ -87,6 +87,7 @@ MambaStateShapes: TypeAlias = (
+@@ -88,6 +88,7 @@ MambaStateShapes: TypeAlias = (
      | tuple[tuple[int, int, int]]
      | tuple[tuple[int, int], tuple[int, int]]
      | tuple[tuple[int, int], tuple[int, int, int]]
@@ -1292,10 +1292,10 @@ index a780cbe..b0bfdba 100644
          tuple[int, int],
          tuple[int, int, int],
 diff --git a/vllm/models/kimi_k3/nvidia/kda.py b/vllm/models/kimi_k3/nvidia/kda.py
-index 26fe7cb..9e542bd 100644
+index c8cfd8cf..39e404c0 100644
 --- a/vllm/models/kimi_k3/nvidia/kda.py
 +++ b/vllm/models/kimi_k3/nvidia/kda.py
-@@ -555,7 +555,7 @@ class KimiK3DeltaAttention(GatedDeltaNetAttention):
+@@ -556,7 +556,7 @@ class KimiK3DeltaAttention(GatedDeltaNetAttention):
              self.cache_config.mamba_cache_dtype,
              self.cache_config.mamba_ssm_cache_dtype,
          )
@@ -1304,7 +1304,7 @@ index 26fe7cb..9e542bd 100644
              return MambaStateDtypeCalculator.append_kda_recoverssm_record(
                  base_dtypes, self.model_config.dtype
              )
-@@ -571,7 +571,7 @@ class KimiK3DeltaAttention(GatedDeltaNetAttention):
+@@ -572,7 +572,7 @@ class KimiK3DeltaAttention(GatedDeltaNetAttention):
              conv_kernel_size=self.conv_size,
              num_spec=self.num_spec,
          )
@@ -1313,7 +1313,7 @@ index 26fe7cb..9e542bd 100644
              return MambaStateShapeCalculator.append_kda_recoverssm_record(
                  base_shapes,
                  self.num_heads,
-@@ -590,7 +590,7 @@ class KimiK3DeltaAttention(GatedDeltaNetAttention):
+@@ -591,7 +591,7 @@ class KimiK3DeltaAttention(GatedDeltaNetAttention):
          run_gemm_rs_ar: bool = False,
      ) -> None:
          super().__init__(config, vllm_config, prefix)
@@ -1323,7 +1323,7 @@ index 26fe7cb..9e542bd 100644
              raise ValueError(
                  "Kimi-K3 supports --use-replayssm only with speculative decoding"
 diff --git a/vllm/models/kimi_k3/nvidia/kda_metadata.py b/vllm/models/kimi_k3/nvidia/kda_metadata.py
-index 58c74e6..6eb7dfd 100644
+index 58c74e62..6eb7dfd0 100644
 --- a/vllm/models/kimi_k3/nvidia/kda_metadata.py
 +++ b/vllm/models/kimi_k3/nvidia/kda_metadata.py
 @@ -319,7 +319,7 @@ class KimiK3KDAMetadataBuilder(GDNAttentionMetadataBuilder):
@@ -1336,10 +1336,10 @@ index 58c74e6..6eb7dfd 100644
          self.recoverssm_num_accepted_tokens: torch.Tensor | None = None
          self.recoverssm_context: KDARecoverSSMCommitContext | None = None
 diff --git a/vllm/models/kimi_k3/nvidia/model.py b/vllm/models/kimi_k3/nvidia/model.py
-index 6434ab9..993422f 100644
+index fca74b46..a49741ae 100644
 --- a/vllm/models/kimi_k3/nvidia/model.py
 +++ b/vllm/models/kimi_k3/nvidia/model.py
-@@ -1591,7 +1591,7 @@ class KimiLinearForCausalLM(
+@@ -1496,7 +1496,7 @@ class KimiLinearForCausalLM(
              vllm_config.cache_config.mamba_cache_dtype,
              vllm_config.cache_config.mamba_ssm_cache_dtype,
          )
@@ -1348,7 +1348,7 @@ index 6434ab9..993422f 100644
              dtypes = MambaStateDtypeCalculator.append_kda_recoverssm_record(
                  dtypes, vllm_config.model_config.dtype
              )
-@@ -1616,7 +1616,7 @@ class KimiLinearForCausalLM(
+@@ -1521,7 +1521,7 @@ class KimiLinearForCausalLM(
              conv_kernel_size=hf_config.linear_attn_config["short_conv_kernel_size"],
              num_spec=num_spec,
          )
@@ -1358,7 +1358,7 @@ index 6434ab9..993422f 100644
                  shapes,
                  hf_config.linear_attn_config["num_heads"],
 diff --git a/vllm/models/kimi_k3/nvidia/ops/recoverssm.py b/vllm/models/kimi_k3/nvidia/ops/recoverssm.py
-index 7eda21f..bca9e52 100644
+index 7eda21f1..bca9e52f 100644
 --- a/vllm/models/kimi_k3/nvidia/ops/recoverssm.py
 +++ b/vllm/models/kimi_k3/nvidia/ops/recoverssm.py
 @@ -9,6 +9,12 @@ from typing import Any
@@ -1555,7 +1555,7 @@ index 7eda21f..bca9e52 100644
  def _commit_kda_state_kernel(
      state_ref_ptr,
 diff --git a/vllm/models/qwen4_exp/nvidia/model.py b/vllm/models/qwen4_exp/nvidia/model.py
-index 47056c4..3f75c2f 100644
+index 01673e83..9049a6d1 100644
 --- a/vllm/models/qwen4_exp/nvidia/model.py
 +++ b/vllm/models/qwen4_exp/nvidia/model.py
 @@ -36,12 +36,14 @@ from vllm.model_executor.layers.vocab_parallel_embedding import (
@@ -1573,7 +1573,7 @@ index 47056c4..3f75c2f 100644
      _require_is_multimodal,
  )
  from vllm.model_executor.models.qwen3_5 import (
-@@ -699,6 +701,7 @@ class Qwen4ExpForCausalLM(
+@@ -692,6 +694,7 @@ class Qwen4ExpForCausalLM(
      SupportsPP,
      Qwen4ExpMixtureOfExperts,
      IsHybrid,
@@ -1581,7 +1581,7 @@ index 47056c4..3f75c2f 100644
  ):
      packed_modules_mapping = {
          "qkv_proj": ["q_proj", "k_proj", "v_proj", "indexer.index_qk_proj"],
-@@ -826,20 +829,38 @@ class Qwen4ExpForCausalLM(
+@@ -819,20 +822,38 @@ class Qwen4ExpForCausalLM(
              num_spec=num_spec,
          )
  
@@ -1626,7 +1626,7 @@ index 47056c4..3f75c2f 100644
          parallel_config = vllm_config.parallel_config
          hf_config = vllm_config.model_config.hf_text_config
          tp_size = parallel_config.tensor_parallel_size
-@@ -848,7 +869,7 @@ class Qwen4ExpForCausalLM(
+@@ -841,7 +862,7 @@ class Qwen4ExpForCausalLM(
              if vllm_config.speculative_config
              else 0
          )
@@ -1635,7 +1635,7 @@ index 47056c4..3f75c2f 100644
              tp_size,
              hf_config.linear_num_key_heads,
              hf_config.linear_num_value_heads,
-@@ -857,18 +878,30 @@ class Qwen4ExpForCausalLM(
+@@ -850,18 +871,30 @@ class Qwen4ExpForCausalLM(
              hf_config.linear_conv_kernel_dim,
              num_spec,
          )
@@ -1668,7 +1668,7 @@ index 47056c4..3f75c2f 100644
          return cls.get_gdn_mamba_state_shape_from_config(vllm_config)
  
      @classmethod
-@@ -957,6 +990,7 @@ class Qwen4ExpForConditionalGeneration(
+@@ -950,6 +983,7 @@ class Qwen4ExpForConditionalGeneration(
      HasInnerState,
      SupportsHCSP,
      Qwen4ExpMixtureOfExperts,
@@ -1676,7 +1676,7 @@ index 47056c4..3f75c2f 100644
  ):
      """Qwen3-VL vision tower backed by the Qwen4Exp language model."""
  
-@@ -1149,14 +1183,15 @@ class Qwen4ExpForConditionalGeneration(
+@@ -1142,14 +1176,15 @@ class Qwen4ExpForConditionalGeneration(
      def get_mamba_state_dtype_from_config(
          cls,
          vllm_config: VllmConfig,
@@ -1696,7 +1696,7 @@ index 47056c4..3f75c2f 100644
  
      @classmethod
 diff --git a/vllm/models/qwen4_exp/nvidia/mtp.py b/vllm/models/qwen4_exp/nvidia/mtp.py
-index 3b684ff..9f443ad 100644
+index 2087b518..228955af 100644
 --- a/vllm/models/qwen4_exp/nvidia/mtp.py
 +++ b/vllm/models/qwen4_exp/nvidia/mtp.py
 @@ -44,7 +44,11 @@ from vllm.model_executor.layers.vocab_parallel_embedding import (
@@ -1728,10 +1728,10 @@ index 3b684ff..9f443ad 100644
          "qkv_proj": ["q_proj", "k_proj", "v_proj"],
          "gate_up_proj": ["gate_proj", "up_proj"],
 diff --git a/vllm/models/qwen4_exp/nvidia/ple_layer.py b/vllm/models/qwen4_exp/nvidia/ple_layer.py
-index a595dba..dead8d1 100644
+index 92ec7649..6fc55605 100644
 --- a/vllm/models/qwen4_exp/nvidia/ple_layer.py
 +++ b/vllm/models/qwen4_exp/nvidia/ple_layer.py
-@@ -171,6 +171,14 @@ class Qwen4ExpPLELayer(nn.Module, MambaBase):
+@@ -184,6 +184,14 @@ class Qwen4ExpPLELayer(nn.Module, MambaBase):
          return True
  
      def get_attn_backend(self) -> type[PleShortConvAttentionBackend]:
@@ -1748,7 +1748,7 @@ index a595dba..dead8d1 100644
      def get_state_dtype(self) -> tuple[torch.dtype, ...]:
 diff --git a/vllm/v1/attention/backends/gdn_recoverssm.py b/vllm/v1/attention/backends/gdn_recoverssm.py
 new file mode 100644
-index 0000000..8b6349a
+index 00000000..8b6349a7
 --- /dev/null
 +++ b/vllm/v1/attention/backends/gdn_recoverssm.py
 @@ -0,0 +1,198 @@
@@ -1951,7 +1951,7 @@ index 0000000..8b6349a
 +    def get_builder_cls() -> type[GDNRecoverSSMMetadataBuilder]:
 +        return GDNRecoverSSMMetadataBuilder
 diff --git a/vllm/v1/attention/backends/mamba_attn.py b/vllm/v1/attention/backends/mamba_attn.py
-index 9820e86..7564d34 100644
+index 9820e866..7564d349 100644
 --- a/vllm/v1/attention/backends/mamba_attn.py
 +++ b/vllm/v1/attention/backends/mamba_attn.py
 @@ -104,7 +104,12 @@ class BaseMambaAttentionMetadataBuilder(AttentionMetadataBuilder[M], abc.ABC):
@@ -1970,7 +1970,7 @@ index 9820e86..7564d34 100644
              self.use_replayssm
 diff --git a/vllm/v1/attention/backends/ple_recoverssm.py b/vllm/v1/attention/backends/ple_recoverssm.py
 new file mode 100644
-index 0000000..28cff01
+index 00000000..28cff018
 --- /dev/null
 +++ b/vllm/v1/attention/backends/ple_recoverssm.py
 @@ -0,0 +1,344 @@
@@ -2319,7 +2319,7 @@ index 0000000..28cff01
 +    def get_builder_cls() -> type[PleRecoverSSMMetadataBuilder]:
 +        return PleRecoverSSMMetadataBuilder
 diff --git a/vllm/v1/attention/backends/recoverssm_metadata.py b/vllm/v1/attention/backends/recoverssm_metadata.py
-index 7e4cca6..b1339e9 100644
+index 7e4cca68..b1339e95 100644
 --- a/vllm/v1/attention/backends/recoverssm_metadata.py
 +++ b/vllm/v1/attention/backends/recoverssm_metadata.py
 @@ -24,3 +24,41 @@ class RecoverSSMMetadata(abc.ABC):
@@ -2365,10 +2365,10 @@ index 7e4cca6..b1339e9 100644
 +        return None
 +    return rows.to(torch.int32).to(device, non_blocking=True)
 diff --git a/vllm/v1/worker/gpu/cudagraph_utils.py b/vllm/v1/worker/gpu/cudagraph_utils.py
-index 62a21ad..a46254d 100644
+index 36d1171b..897e721a 100644
 --- a/vllm/v1/worker/gpu/cudagraph_utils.py
 +++ b/vllm/v1/worker/gpu/cudagraph_utils.py
-@@ -363,7 +363,7 @@ class CudaGraphManager:
+@@ -368,7 +368,7 @@ class CudaGraphManager:
  
              # recoverSSM cannot capture a dummy query wider than its workspace.
              if mixed_mode and (
@@ -2377,7 +2377,7 @@ index 62a21ad..a46254d 100644
                  or num_tokens <= max_decode_tokens
              ):
                  # for PIECEWISE graphs there is no limit on requests when replaying
-@@ -1038,6 +1038,11 @@ def _teardown_profiling_state(runner: "GPUModelRunner") -> None:
+@@ -1083,6 +1083,11 @@ def _teardown_profiling_state(runner: "GPUModelRunner") -> None:
      torch.accelerator.synchronize()
      if hasattr(runner.model_state, "_mamba_ctx"):
          runner.model_state._mamba_ctx = None
@@ -2390,7 +2390,7 @@ index 62a21ad..a46254d 100644
      # profiling KVCacheConfig: the real (e.g. PP-projected) config may
      # place Mamba layers into a different group layout, so it must be
 diff --git a/vllm/v1/worker/gpu/model_states/mamba_hybrid.py b/vllm/v1/worker/gpu/model_states/mamba_hybrid.py
-index 94c57c1..7320eec 100644
+index 94c57c19..7320eec7 100644
 --- a/vllm/v1/worker/gpu/model_states/mamba_hybrid.py
 +++ b/vllm/v1/worker/gpu/model_states/mamba_hybrid.py
 @@ -92,7 +92,7 @@ class MambaHybridModelState(DefaultModelState):
@@ -2403,7 +2403,7 @@ index 94c57c1..7320eec 100644
          if self._align_mode:
              self._mamba_state_idx_gpu = torch.zeros(
 diff --git a/vllm/v1/worker/gpu/model_states/recoverssm.py b/vllm/v1/worker/gpu/model_states/recoverssm.py
-index 985f290..26e5f57 100644
+index 985f2907..26e5f578 100644
 --- a/vllm/v1/worker/gpu/model_states/recoverssm.py
 +++ b/vllm/v1/worker/gpu/model_states/recoverssm.py
 @@ -16,6 +16,11 @@ class RecoverSSMState:
