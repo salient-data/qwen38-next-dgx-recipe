@@ -34,10 +34,10 @@ result in this repo carries a GSM8K score and `verify.sh` asks two questions wit
   browser tabs, or another inference server will make the load fail or the KV pool smaller.
 - Loading took about 5-6 minutes on our Spark, from the first log line to a server that answers: the weight load
   about 120 s ("Loading weights took 124.52 seconds"; "Model loading took 73.51 GiB memory and 153.07 seconds",
-  drafter included), then the KV cache profile, CUDA graph capture and warm-up. Patch `0014` reads the routed experts
+  drafter included), then the KV cache profile, CUDA graph capture and warm-up. The `moe-batched-load` patch reads the routed experts
   in large parallel reads; with it off (`QWEN38_BATCHED_LOAD=0`) the weight load runs on one CPU core and takes about
   450-540 s. A larger disk read-ahead (8192 KB rather than the distro's 128 KB) shortened cold loads on earlier
-  builds; it has not been re-measured with patch `0014`.
+  builds; it has not been re-measured with that patch.
 - NVIDIA's DGX Spark playbooks suggest flushing the page cache if you hit memory errors that should not happen:
   `sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`. The first load after that is slower.
 - `nvidia-smi --query-gpu=memory.*` reports N/A on GB10; use `free -g` and the vLLM log lines above.
