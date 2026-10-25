@@ -117,7 +117,7 @@ git clone https://github.com/salient-data/qwen38-next-dgx-recipe && cd qwen38-ne
 ./recipe/download.sh             # hf download at the pinned revision, then verifies file hashes
 ./recipe/build.sh                # pulls the pinned base by digest (~10 GB download, ~25 GB on disk), applies the patches
 ./recipe/launch.sh --print       # shows the exact docker command
-./recipe/launch.sh               # runs it in this terminal so you watch it load (about 5-6 minutes, below); Ctrl-C stops it
+./recipe/launch.sh               # runs it in this terminal so you watch it load (about 6 minutes, below); Ctrl-C stops it
 ./recipe/verify.sh               # from a second terminal: two known-answer requests
 ./recipe/stop.sh                 # stop and remove the container
 ```
@@ -164,7 +164,7 @@ git checkout main && git pull    # or: git checkout build-<date>-<sha8> for a sp
 ./recipe/download.sh             # downloads only if the model revision changed; verifies the small config and tokenizer files (the hub checks the weights as they download)
 ./recipe/build.sh                # builds the new image; the old one stays until you remove it
 ./recipe/launch.sh --detach      # in the background, so the next line can run (or run launch.sh in its own terminal)
-./recipe/verify.sh               # once it answers, about 5-6 minutes later
+./recipe/verify.sh               # once it answers, about 6 minutes later
 ```
 
 `./recipe/qfn upgrade` does the `git` step and then fetches the new build's image: it pulls it when one is
