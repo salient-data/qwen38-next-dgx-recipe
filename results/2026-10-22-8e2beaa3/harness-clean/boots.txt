@@ -1,0 +1,11 @@
+== boot 1 (after a host reboot, recipe images and checkpoint absent; first ./recipe/qfn up)
+INFO 10-25 22:48:32 [default_loader.py:501] Loading weights took 117.70 seconds
+INFO 10-25 22:48:55 [default_loader.py:501] Loading weights took 20.30 seconds
+INFO 10-25 22:48:59 [model_runner.py:431] Model loading took 73.57 GiB memory and 149.073709 seconds
+INFO 10-25 22:50:42 [gpu_worker.py:763] Available KV cache memory: 16.13 GiB
+INFO 10-25 22:50:42 [kv_cache_utils.py:1101] GPU KV cache size: 1,025,780 tokens, Maximum concurrency for 262,144 tokens per request: 3.91x
+answering after 361 s
+
+== boot 2 (same host, no reboot; page cache warm)
+INFO 10-25 23:12:09 [kv_cache_utils.py:1101] GPU KV cache size: 1,153,053 tokens, Maximum concurrency for 262,144 tokens per request: 4.40x
+answering after 271 s

@@ -21,6 +21,10 @@ requests. Each results directory (`results/<build>/`) holds the raw files, the b
 - Its auto-score checks format and length (word ranges, bullet counts, JSON fields) and executes returned code
   against unit tests; it is not a general accuracy measure.
 
+The first 6-stream run after a server start was slower both times we measured it: its first batch measured 76.6 tok/s
+after a reboot and 88.2 after a restart, against
+96-101 once warm (`results/2026-10-22-8e2beaa3/harness-clean/`). Run the 6-stream harness twice and keep the second.
+
 Statistic and spread are reported as measured; there is no noise floor for these cells.
 
 ## Quality

@@ -70,6 +70,7 @@ numbers, not promises.
 - Patches: 0001-vllm58815-ple-host-file-gather, 0002-fp8-dense-and-draft-vocab, 0003-vllm59973-nvfp4-draft-lm-head, 0004-vllm58681-restore-sm12x-alignment-behavior-for, 0005-quiet-boot, 0006-mtp-shard-filter, 0007-vllm54912-widen-the-qsa-raw-key-ring, 0008-vllm60068-confidence-stop-for-autoregressive-drafting, 0009-skinny-gemm-rows, 0010-vllm58863-recoverssm-for-qwen-gdn-and, 0011-vllm59740-context-aware-sparse-lm-head, 0012-moe-batched-load, 0013-vllm62841-avoid-re-marking-committed-prompt-tail-boundaries, 0014-draft-head-per-batch.
 - Harness: 69.3 tok/s median at 1 stream, 91.9 aggregate at 6 (85.1 total output over the run); GSM8K subset 99/100.
 - Measured again on 2026-10-25 on a fresh boot of the same image: 69.3 tok/s at 1 stream, 92.4 aggregate at 6 (87.9 total output).
+- Clean first-time run on 2026-10-25 (reboot, fresh clone, image and checkpoint downloaded): 69.8 tok/s at 1 stream, 82.6 aggregate at 6 (81.4 total output); three later 6-stream runs on a second boot: 88.2, 90.3, 90.3. The first 6-stream run after a server start was slower both times we measured it. Data: `results/2026-10-22-8e2beaa3/harness-clean/`.
 - Results: `results/2026-10-22-8e2beaa3/`.
 - Tag: `build-2026-10-22-8e2beaa3`.
 

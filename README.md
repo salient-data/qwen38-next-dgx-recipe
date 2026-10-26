@@ -35,6 +35,8 @@ Build `2026-10-22-8e2beaa3` (vLLM `8e2beaa3` + 14 patches), measured 2026-10-22:
 | GSM8K, fixed 100-problem subset (temperature 0.6, top-p 0.95, thinking on, max 3072 tokens) | **99/100** (Wilson 95% 94.55-99.82%) | - |
 | fixed checks: arithmetic, ten tasks, ~131K needle, prefix-cache canary | 12/12, 9/10, pass, pass | - |
 | measured again on 2026-10-25 on a fresh boot of the same image, 1 stream median / prose / 6 streams aggregate / 6 streams total output | 69.3 (runs 67.2 / 69.4 / 69.3) / 40.5 / 92.4 / 87.9 | - |
+| clean first-time run on 2026-10-25 (host rebooted, fresh clone, image and checkpoint downloaded), same columns | 69.8 (runs 68.5 / 69.8 / 70.0) / 41.5 / 82.6 / 81.4 | - |
+| 6 streams, three more runs on a second boot that evening, aggregate / total output | 88.2 / 83.5, 90.3 / 85.7, 90.3 / 85.3 | - |
 
 For scale: tonyd2wild's own recipe, which we reran on our Spark on 2026-10-03 with the same harness, measured 42.6 / 28.4 / 64.2 tok/s on the three speed rows. Caveats: to load checkpoint fc694b54 we added an FP8_PB_WO alias to their stack and built its image from source; one run; the 1-stream figure pools three partial runs; prefix caching off. Its raw data is not in this repo.
 
